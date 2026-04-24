@@ -1,0 +1,14 @@
+[project]
+name = "portableapps-launcher-maker"
+version = "0.1.0"
+description = "Tkinter desktop app for generating PortableApps.com launcher projects and builds."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["Pillow>=12.2.0"]
+
+[project.scripts]
+portableapps-launcher-maker = "app.portableapps_launcher_maker:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
