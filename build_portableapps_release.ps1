@@ -43,7 +43,8 @@ if (($pythonBits | Out-String).Trim() -ne "64") {
   --windowed `
   --noupx `
   --contents-directory . `
-  --add-data "app\assets\default_portable_icon.png;app\assets" `
+  --icon "app\assets\software_icon.ico" `
+  --add-data "app\assets;app\assets" `
   --add-data "app\help_template;app\help_template" `
   --name PortableAppsLauncherMaker `
   app\portableapps_main.py

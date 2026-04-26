@@ -41,7 +41,8 @@ $buildName = "PortableAppsLauncherMaker-x86"
   --windowed `
   --noupx `
   --contents-directory . `
-  --add-data "app\assets\default_portable_icon.png;app\assets" `
+  --icon "app\assets\software_icon.ico" `
+  --add-data "app\assets;app\assets" `
   --add-data "app\help_template;app\help_template" `
   --name $buildName `
   app\portableapps_main.py

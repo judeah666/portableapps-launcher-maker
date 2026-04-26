@@ -21,6 +21,7 @@ It can also call the **PortableApps.com Launcher Generator** to build the final 
 - supports registry, icon, splash, and installer settings
 - previews generated folder layout and INI output live
 - supports both 64-bit and 32-bit packaged app builds
+- creates GitHub-release ZIP assets from finished builds
 
 ## Running From Source
 
@@ -65,6 +66,20 @@ You can also set `PORTABLEAPPS_X86_PYTHON` first and run the script without argu
 Output:
 - `dist\PortableAppsLauncherMaker-x86\PortableAppsLauncherMaker-x86.exe`
 
+### GitHub Release ZIPs
+
+After you have built one or both architectures, create GitHub-friendly ZIP assets with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\package_github_release.ps1
+```
+
+Output:
+- `dist\release\PortableAppsLauncherMaker-win64.zip`
+- `dist\release\PortableAppsLauncherMaker-win32.zip`
+
+You can use `-Skip64` or `-Skip32` if you only built one architecture.
+
 ## Downloads
 
 For GitHub, the best distribution path is:
@@ -81,6 +96,7 @@ Recommended release assets:
 - `tests/`: automated tests
 - `build_portableapps_release.ps1`: 64-bit release build
 - `build_portableapps_release_x86.ps1`: 32-bit release build
+- `package_github_release.ps1`: creates GitHub release ZIPs from built folders
 
 ## Notes
 
