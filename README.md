@@ -24,7 +24,15 @@ Example:
 - `2.0.0.0`
 
 The current app version is:
-- `1.0.0.0`
+- `1.0.0.1`
+
+## What's New In 1.0.0.1
+
+- moved application EXE and output folder controls into the Project Settings header
+- widened the live preview panel and increased the default app window size
+- removed horizontal scrollbars from multi-line text areas
+- returned dropdowns and inputs to stable native Tk/ttk controls
+- kept Validate beside Create Project + EXE for a cleaner build flow
 
 ## Quick Start
 
@@ -72,11 +80,11 @@ The app is organized into focused tabs:
 - `Registry`
 - `Icon`
 - `Splash`
-- `Preview`
 
 Notable UI behavior:
 - collapsible cards for major sections
 - fixed top tab navigation while forms scroll
+- live preview panel on the right side of the editor
 - styled folder preview with important generated files highlighted
 - icon preview strip showing multiple generated sizes
 - help popup for PAL variables and registry guidance

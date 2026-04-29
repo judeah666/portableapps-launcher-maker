@@ -579,11 +579,11 @@ class PortableAppsLauncherMakerTests(unittest.TestCase):
         self.assertTrue((project_root / "Other" / "Help" / "Images" / "Donation_Button.png").exists())
         self.assertTrue((project_root / "Data" / "settings").is_dir())
         self.assertTrue((project_root / "Other" / "Source" / "Readme.txt").exists())
-        expected_help_html = (Path(__file__).parents[1] / "app" / "help_template" / "help.html").read_text(encoding="utf-8")
+        expected_help_html = (Path(__file__).parents[1] / "app" / "assets" / "help" / "help.html").read_text(encoding="utf-8")
         self.assertIn("Sample App Portable Help", (project_root / "help.html").read_text(encoding="utf-8"))
         self.assertIn("[DESCRIPTION OF APP FUNCTION HERE]", expected_help_html)
         for filename in HELP_IMAGE_FILENAMES:
-            expected = (Path(__file__).parents[1] / "app" / "help_template" / "Images" / filename).read_bytes()
+            expected = (Path(__file__).parents[1] / "app" / "assets" / "help" / "Images" / filename).read_bytes()
             actual = (project_root / "Other" / "Help" / "Images" / filename).read_bytes()
             self.assertEqual(actual, expected)
         for filename in LAUNCHER_TEMPLATE_FILENAMES:

@@ -8,6 +8,35 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
 if (-not $Python64) {
+  $uvPython = Get-Command uv -ErrorAction SilentlyContinue
+  if ($uvPython) {
+    try {
+      $candidate = & $uvPython.Source python find 3.13 2>$null
+      if ($LASTEXITCODE -eq 0 -and $candidate) {
+        $Python64 = ($candidate | Out-String).Trim()
+      }
+    } catch {
+    }
+  }
+}
+
+if (-not $Python64) {
+  $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+  if ($pyLauncher) {
+    foreach ($selector in @("-3.13", "-3.14")) {
+      try {
+        $candidate = & $pyLauncher.Source $selector -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+          $Python64 = ($candidate | Out-String).Trim()
+          break
+        }
+      } catch {
+      }
+    }
+  }
+}
+
+if (-not $Python64) {
   $resolvedPython = Get-Command python -ErrorAction SilentlyContinue
   if ($resolvedPython) {
     $Python64 = $resolvedPython.Source
@@ -43,9 +72,8 @@ if (($pythonBits | Out-String).Trim() -ne "64") {
   --windowed `
   --noupx `
   --contents-directory . `
-  --icon "app\assets\software_icon.ico" `
+  --icon "app\assets\icons\software_icon.ico" `
   --add-data "app\assets;app\assets" `
-  --add-data "app\help_template;app\help_template" `
   --name PortableAppsLauncherMaker `
   app\portableapps_main.py
 

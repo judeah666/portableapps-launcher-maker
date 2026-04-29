@@ -1,1337 +1,162 @@
-import html
-import os
-import re
 import shutil
-import struct
 import subprocess
-import sys
 import tempfile
 import tkinter as tk
 import webbrowser
-from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 
+from app.portableapps_core import (
+    DEFAULT_SPLASH_ASSET,
+    HELP_IMAGE_FILENAMES,
+    ICON_PREVIEW_DISPLAY_SIZES,
+    LAUNCHER_TEMPLATE_FILENAMES,
+    PORTABLEAPPS_DEVELOPMENT_DOWNLOADS_URL,
+    SOFTWARE_ICON,
+    SOFTWARE_ICON_PNG,
+    TEMPLATE_ASSET_SPECS,
+    ValidationItem,
+    LauncherProject,
+    app_base_path,
+    asset_path,
+    bool_to_ini,
+    build_appinfo_ini,
+    build_help_html,
+    build_installer_ini,
+    build_launcher_ini,
+    build_readme,
+    build_registry_key_entries_from_reg_text,
+    build_validation_items,
+    clean_display_name,
+    clean_identifier,
+    clean_ini_lines,
+    create_help_images,
+    create_launcher_project,
+    create_launcher_template_assets,
+    default_portableapps_output_dir,
+    detect_app_name_from_exe,
+    extract_embedded_icon,
+    find_portableapps_launcher,
+    has_ini_lines,
+    help_image_asset_path,
+    load_icon_image,
+    make_fallback_icon,
+    merge_ini_line_sets,
+    normalize_registry_path,
+    parse_registry_paths_from_reg_text,
+    render_validation_report,
+    resolve_project_tokens,
+    splash_asset_path,
+    validate_ini_mapping_lines,
+    validate_project,
+)
+from app.portableapps_ui_theme import (
+    UI_COLORS,
+    create_root_window,
+    create_combobox as themed_create_combobox,
+    create_entry as themed_create_entry,
+    create_scrollbar as themed_create_scrollbar,
+    make_button as themed_make_button,
+    setup_ttk_styles,
+)
 from app.version import APP_VERSION
 
 
-INVALID_FILENAME_CHARS = '<>:"/\\|?*'
-PORTABLEAPPS_PNG_ICON_SIZES = (16, 32, 75, 128, 256)
-PORTABLEAPPS_ICO_ICON_SIZES = (16, 32, 48, 256)
-ICON_PREVIEW_DISPLAY_SIZES = (
-    (256, 96),
-    (128, 72),
-    (75, 56),
-    (32, 32),
-    (16, 16),
-)
-DEFAULT_FALLBACK_ICON = "default_portable_icon.png"
-SOFTWARE_LOGO = "software_logo.png"
-SOFTWARE_ICON = "software_icon.ico"
-SOFTWARE_ICON_PNG = "software_icon_256.png"
-DEFAULT_SPLASH_ASSET = "default_splash.png"
-PORTABLEAPPS_DEVELOPMENT_DOWNLOADS_URL = "https://portableapps.com/development"
-REGISTRY_ROOT_ALIASES = {
-    "HKEY_CLASSES_ROOT": "HKCR",
-    "HKEY_CURRENT_USER": "HKCU",
-    "HKEY_LOCAL_MACHINE": "HKLM",
-    "HKEY_USERS": "HKU",
-    "HKEY_CURRENT_CONFIG": "HKCC",
-}
-HELP_IMAGE_FILENAMES = (
-    "Favicon.ico",
-    "Donation_Button.png",
-    "Help_Logo_Top.png",
-    "Help_Background_Footer.png",
-    "Help_Background_Header.png",
-)
-LAUNCHER_TEMPLATE_FILENAMES = (
-    "Splash.jpg",
-)
-TEMPLATE_ASSET_SPECS = (
-    (DEFAULT_SPLASH_ASSET, "Default Splash", (("Image files", "*.png;*.jpg;*.jpeg"), ("All files", "*.*"))),
-)
+class ScrolledText(tk.Frame):
+    """Small Tk text editor wrapper with built-in ttk scrollbars."""
 
-
-@dataclass
-class LauncherProject:
-    app_name: str
-    package_name: str
-    publisher: str
-    homepage: str
-    category: str
-    description: str
-    version: str
-    display_version: str
-    app_exe: str
-    output_dir: str
-    trademarks: str = ""
-    language: str = "Multilingual"
-    donate: str = ""
-    install_type: str = ""
-    command_line: str = ""
-    working_directory: str = "%PAL:AppDir%\\{app_name}"
-    wait_for_program: bool = True
-    close_exe: str = ""
-    wait_for_other_instances: bool = True
-    min_os: str = ""
-    max_os: str = ""
-    run_as_admin: str = ""
-    refresh_shell_icons: str = ""
-    hide_command_line_window: bool = False
-    no_spaces_in_path: bool = False
-    supports_unc: str = ""
-    activate_java: str = ""
-    activate_xml: bool = False
-    live_mode_copy_app: bool = False
-    live_mode_copy_data: bool = False
-    files_move: str = ""
-    directories_move: str = ""
-    installer_close_exe: str = ""
-    installer_close_name: str = ""
-    include_installer_source: bool = False
-    remove_app_directory: bool = False
-    remove_data_directory: bool = False
-    remove_other_directory: bool = False
-    optional_components_enabled: bool = False
-    main_section_title: str = ""
-    main_section_description: str = ""
-    optional_section_title: str = ""
-    optional_section_description: str = ""
-    optional_section_selected_install_type: str = ""
-    optional_section_not_selected_install_type: str = ""
-    optional_section_preselected: str = ""
-    installer_languages: str = ""
-    preserve_directories: str = ""
-    remove_directories: str = ""
-    preserve_files: str = ""
-    remove_files: str = ""
-    copy_app_files: bool = True
-    icon_source: str = ""
-    icon_index: int = 0
-    registry_enabled: bool = False
-    registry_keys: str = ""
-    registry_cleanup_if_empty: str = ""
-    registry_cleanup_force: str = ""
-    license_shareable: bool = True
-    license_open_source: bool = False
-    license_freeware: bool = True
-    license_commercial_use: bool = True
-    license_eula_version: str = ""
-    special_plugins: str = "NONE"
-    dependency_uses_ghostscript: str = "no"
-    dependency_uses_java: str = "no"
-    dependency_uses_dotnet_version: str = ""
-    dependency_requires_64bit_os: str = "no"
-    dependency_requires_portable_app: str = ""
-    dependency_requires_admin: str = "no"
-    control_icons: str = "1"
-    control_start: str = ""
-    control_extract_icon: str = ""
-    control_extract_name: str = ""
-    control_base_app_id: str = ""
-    control_base_app_id_64: str = ""
-    control_base_app_id_arm64: str = ""
-    control_exit_exe: str = ""
-    control_exit_parameters: str = ""
-    association_file_types: str = ""
-    association_file_type_command_line: str = ""
-    association_file_type_command_line_extension: str = ""
-    association_protocols: str = ""
-    association_protocol_command_line: str = ""
-    association_protocol_command_line_protocol: str = ""
-    association_send_to: bool = False
-    association_send_to_command_line: str = ""
-    association_shell: bool = False
-    association_shell_command: str = ""
-    file_type_icons: str = ""
-
-    @property
-    def portable_name(self) -> str:
-        return f"{self.package_name}Portable"
-
-    @property
-    def app_exe_name(self) -> str:
-        return Path(self.app_exe).name
-
-
-@dataclass
-class ValidationItem:
-    level: str
-    label: str
-    detail: str
-
-
-def clean_identifier(value: str, fallback: str = "MyApp") -> str:
-    words = re.findall(r"[A-Za-z0-9]+", value or "")
-    if not words:
-        return fallback
-    cleaned = "".join(word[:1].upper() + word[1:] for word in words)
-    return cleaned or fallback
-
-
-def clean_display_name(value: str, fallback: str = "My App") -> str:
-    cleaned = "".join(ch for ch in (value or "").strip() if ch not in INVALID_FILENAME_CHARS)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned or fallback
-
-
-def bool_to_ini(value: bool) -> str:
-    return "true" if value else "false"
-
-
-def clean_ini_lines(text: str) -> list[str]:
-    return [line.strip() for line in (text or "").splitlines() if line.strip()]
-
-
-def has_ini_lines(text: str) -> bool:
-    return bool(clean_ini_lines(text))
-
-
-def normalize_registry_path(path: str) -> str:
-    candidate = (path or "").strip().lstrip("\\")
-    if not candidate:
-        return ""
-    for full_name, alias in REGISTRY_ROOT_ALIASES.items():
-        if candidate == full_name:
-            return alias
-        prefix = full_name + "\\"
-        if candidate.startswith(prefix):
-            return alias + "\\" + candidate[len(prefix):]
-    return candidate
-
-
-def registry_entry_name_for_key(registry_path: str, used_names: set[str]) -> str:
-    parts = [part for part in normalize_registry_path(registry_path).split("\\") if part]
-    raw_candidates: list[str] = []
-    if len(parts) >= 3:
-        raw_candidates.append("_".join(parts[-2:]))
-    if len(parts) >= 2:
-        raw_candidates.append(parts[-1])
-    if len(parts) >= 2:
-        raw_candidates.append("_".join(parts[1:]))
-    raw_candidates.append(parts[-1] if parts else "registry_key")
-
-    base = ""
-    for candidate in raw_candidates:
-        slug = re.sub(r"[^A-Za-z0-9]+", "_", candidate).strip("_").lower()
-        if slug:
-            base = slug
-            break
-    if not base:
-        base = "registry_key"
-    if base not in used_names:
-        used_names.add(base)
-        return base
-
-    index = 2
-    while f"{base}_{index}" in used_names:
-        index += 1
-    unique_name = f"{base}_{index}"
-    used_names.add(unique_name)
-    return unique_name
-
-
-def parse_registry_paths_from_reg_text(text: str) -> list[str]:
-    keys: list[str] = []
-    seen: set[str] = set()
-    for raw_line in (text or "").splitlines():
-        line = raw_line.strip().lstrip("\ufeff")
-        if not line or line.startswith(";"):
-            continue
-        match = re.match(r"^\[(?P<delete>-)?(?P<path>[^\]]+)\]$", line)
-        if not match or match.group("delete"):
-            continue
-        normalized = normalize_registry_path(match.group("path"))
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            keys.append(normalized)
-    return keys
-
-
-def build_registry_key_entries_from_reg_text(text: str) -> list[str]:
-    used_names: set[str] = set()
-    return [
-        f"{registry_entry_name_for_key(registry_path, used_names)}={registry_path}"
-        for registry_path in parse_registry_paths_from_reg_text(text)
-    ]
-
-
-def merge_ini_line_sets(existing_text: str, new_lines: list[str], replace_existing: bool) -> str:
-    if replace_existing:
-        return "\n".join(new_lines)
-    combined: list[str] = []
-    seen: set[str] = set()
-    for line in clean_ini_lines(existing_text):
-        if line not in seen:
-            seen.add(line)
-            combined.append(line)
-    for line in new_lines:
-        if line not in seen:
-            seen.add(line)
-            combined.append(line)
-    return "\n".join(combined)
-
-
-def detect_app_name_from_exe(path: str) -> str:
-    stem = Path(path or "").stem
-    stem = re.sub(r"[_-]+", " ", stem).strip()
-    return clean_display_name(stem, fallback="My App")
-
-
-def portableapps_launcher_candidates() -> list[Path]:
-    candidates = []
-    app_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
-    drive_root = Path(app_dir.anchor)
-    if str(drive_root):
-        candidates.append(drive_root / "PortableApps" / "PortableApps.comLauncher" / "PortableApps.comLauncherGenerator.exe")
-    for base in (app_dir, *app_dir.parents):
-        candidates.extend(
-            [
-                base / "PortableApps" / "PortableApps.comLauncher" / "PortableApps.comLauncherGenerator.exe",
-                base / "PortableApps" / "PortableApps.comLauncher" / "PortableApps.comLauncher.exe",
-                base / "PortableApps" / "PortableApps.comLauncher" / "PortableApps.com Launcher.exe",
-            ]
+    def __init__(self, parent, colors, *, height=4, background=None, wrap="none", font=("Consolas", 11)):
+        super().__init__(
+            parent,
+            bg=colors["field_border"],
+            highlightthickness=1,
+            highlightbackground=colors["field_border"],
+            bd=0,
         )
-    roots = [
-        os.environ.get("ProgramFiles"),
-        os.environ.get("ProgramFiles(x86)"),
-        os.environ.get("LOCALAPPDATA"),
-        os.environ.get("USERPROFILE"),
-        os.getcwd(),
-    ]
-    names = [
-        r"PortableApps.comLauncher\PortableApps.comLauncher.exe",
-        r"PortableApps.comLauncher\PortableApps.comLauncherGenerator.exe",
-        r"PortableApps.com Launcher\PortableApps.comLauncher.exe",
-        r"PortableApps.com Launcher\PortableApps.com Launcher.exe",
-        r"PortableApps\PortableApps.comLauncher\PortableApps.comLauncher.exe",
-        r"PortableApps\PortableApps.comLauncher\PortableApps.comLauncherGenerator.exe",
-    ]
-    for root in roots:
-        if not root:
-            continue
-        for name in names:
-            candidates.append(Path(root) / name)
-    candidates.append(Path(r"C:\PortableApps\PortableApps.comLauncher\PortableApps.comLauncherGenerator.exe"))
-    candidates.append(Path(r"C:\PortableApps\PortableApps.comLauncher\PortableApps.comLauncher.exe"))
-    return candidates
-
-
-def find_portableapps_launcher() -> Path | None:
-    for candidate in portableapps_launcher_candidates():
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def app_base_path() -> Path:
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS)
-    return Path(__file__).resolve().parents[1]
-
-
-def default_portableapps_output_dir() -> str:
-    base_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
-    drive_root = Path(base_dir.anchor)
-    if str(drive_root):
-        return str(drive_root / "PortableApps")
-    return str(Path.cwd() / "PortableApps")
-
-
-def asset_path(name: str) -> Path:
-    return app_base_path() / "app" / "assets" / name
-
-
-def help_template_path(*parts: str) -> Path:
-    return app_base_path() / "app" / "help_template" / Path(*parts)
-
-
-def help_image_asset_path(name: str) -> Path:
-    return help_template_path("Images", name)
-
-
-def load_help_html_template() -> str:
-    template_path = help_template_path("help.html")
-    if template_path.exists():
-        return template_path.read_text(encoding="utf-8")
-    raise FileNotFoundError(f"Help template not found: {template_path}")
-
-
-def launcher_template_asset_path(name: str) -> Path:
-    return help_template_path("Launcher", name)
-
-
-def splash_asset_path() -> Path:
-    return asset_path(DEFAULT_SPLASH_ASSET)
-
-
-def open_folder_in_explorer(path: Path) -> None:
-    target = Path(path)
-    try:
-        if hasattr(os, "startfile"):
-            os.startfile(str(target))
-            return
-    except OSError:
-        pass
-
-    try:
-        subprocess.Popen(["explorer", str(target)])
-    except OSError:
-        pass
-
-
-def resolve_project_tokens(value: str, project: LauncherProject) -> str:
-    resolved = value or ""
-    return (
-        resolved.replace("{app_name}", project.package_name)
-        .replace("{package_name}", project.package_name)
-        .replace("{portable_name}", project.portable_name)
-    )
-
-
-def validate_project(project: LauncherProject) -> list[str]:
-    errors: list[str] = []
-    if not project.app_name.strip():
-        errors.append("App Name is required.")
-    if not project.package_name.strip():
-        errors.append("Package ID is required.")
-    if not project.app_exe.strip():
-        errors.append("Application EXE is required.")
-    else:
-        app_exe = Path(project.app_exe)
-        if not app_exe.exists():
-            errors.append(f"Application EXE was not found: {app_exe}")
-        elif not app_exe.is_file():
-            errors.append("Application EXE must point to a file.")
-        elif app_exe.suffix.lower() != ".exe":
-            errors.append("Application EXE must be a .exe file.")
-    if not project.output_dir.strip():
-        errors.append("Output Folder is required.")
-    if project.icon_source.strip() and not Path(project.icon_source).exists():
-        errors.append(f"Icon Override was not found: {project.icon_source}")
-    if project.version.strip() and not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", project.version.strip()):
-        errors.append("Package Version must use the PortableApps format: major.minor.patch.build")
-    if (
-        not project.registry_enabled
-        and (
-            has_ini_lines(project.registry_keys)
-            or has_ini_lines(project.registry_cleanup_if_empty)
-            or has_ini_lines(project.registry_cleanup_force)
+        self.colors = colors
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        field_background = background or colors["field_soft"]
+        self._text = tk.Text(
+            self,
+            height=height,
+            wrap=wrap,
+            bg=field_background,
+            fg=colors["text"],
+            insertbackground=colors["text"],
+            selectbackground=colors["accent_soft"],
+            selectforeground=colors["text"],
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=font,
+            undo=True,
         )
-    ):
-        errors.append("Enable Registry in the Registry tab before using RegistryKeys or cleanup sections.")
-    return errors
-
-
-def validate_ini_mapping_lines(text: str, section_name: str) -> list[str]:
-    issues: list[str] = []
-    for index, line in enumerate(clean_ini_lines(text), start=1):
-        if "=" not in line:
-            issues.append(f"{section_name} line {index} must use key=value format.")
-    return issues
-
-
-def build_validation_items(project: LauncherProject, launcher_path: Path | None = None) -> list[ValidationItem]:
-    items: list[ValidationItem] = []
-    errors = validate_project(project)
-    error_map = {
-        "App Name is required.": "App Name",
-        "Package ID is required.": "Package ID",
-        "Application EXE is required.": "Application EXE",
-        "Application EXE must point to a file.": "Application EXE",
-        "Application EXE must be a .exe file.": "Application EXE",
-        "Output Folder is required.": "Output Folder",
-        "Package Version must use the PortableApps format: major.minor.patch.build": "Package Version",
-        "Enable Registry in the Registry tab before using RegistryKeys or cleanup sections.": "Registry",
-    }
-    mapped_errors: set[str] = set()
-    for error in errors:
-        label = error_map.get(error)
-        if label is None and error.startswith("Application EXE was not found:"):
-            label = "Application EXE"
-        elif label is None and error.startswith("Icon Override was not found:"):
-            label = "Icon Override"
-        if label is not None:
-            items.append(ValidationItem("error", label, error))
-            mapped_errors.add(error)
-
-    app_name = project.app_name.strip()
-    if app_name and "App Name is required." not in mapped_errors:
-        items.append(ValidationItem("ok", "App Name", app_name))
-
-    package_name = project.package_name.strip()
-    if package_name and "Package ID is required." not in mapped_errors:
-        items.append(ValidationItem("ok", "Package ID", package_name))
-
-    app_exe_value = project.app_exe.strip()
-    app_exe_path = Path(app_exe_value) if app_exe_value else None
-    if (
-        app_exe_path is not None
-        and app_exe_path.exists()
-        and app_exe_path.is_file()
-        and app_exe_path.suffix.lower() == ".exe"
-    ):
-        items.append(ValidationItem("ok", "Application EXE", str(app_exe_path)))
-
-    output_dir = project.output_dir.strip()
-    if output_dir:
-        output_path = Path(output_dir)
-        items.append(ValidationItem("ok", "Output Folder", str(output_path / project.portable_name)))
-
-    icon_override = project.icon_source.strip()
-    if icon_override:
-        icon_path = Path(icon_override)
-        if icon_path.exists():
-            items.append(ValidationItem("ok", "Icon Override", str(icon_path)))
-
-    if project.version.strip() and "Package Version must use the PortableApps format: major.minor.patch.build" not in mapped_errors:
-        items.append(ValidationItem("ok", "Package Version", project.version.strip()))
-
-    registry_has_sections = any(
-        has_ini_lines(value)
-        for value in (
-            project.registry_keys,
-            project.registry_cleanup_if_empty,
-            project.registry_cleanup_force,
-        )
-    )
-    if project.registry_enabled:
-        detail = "Registry handling is enabled."
-        if registry_has_sections:
-            detail += " Registry sections will be written."
-        items.append(ValidationItem("ok", "Registry", detail))
-    elif registry_has_sections:
-        items.append(ValidationItem("error", "Registry", "Registry entries exist but registry handling is disabled."))
-    else:
-        items.append(ValidationItem("ok", "Registry", "Registry handling is disabled and no registry sections are set."))
-
-    for section_name, text in (
-        ("FilesMove", project.files_move),
-        ("DirectoriesMove", project.directories_move),
-        ("RegistryKeys", project.registry_keys),
-        ("RegistryCleanupIfEmpty", project.registry_cleanup_if_empty),
-        ("RegistryCleanupForce", project.registry_cleanup_force),
-        ("Installer Languages", project.installer_languages),
-        ("DirectoriesToPreserve", project.preserve_directories),
-        ("DirectoriesToRemove", project.remove_directories),
-        ("FilesToPreserve", project.preserve_files),
-        ("FilesToRemove", project.remove_files),
-    ):
-        for issue in validate_ini_mapping_lines(text, section_name):
-            items.append(ValidationItem("warning", section_name, issue))
-
-    resolved_launcher_path = launcher_path if launcher_path is not None else find_portableapps_launcher()
-    if resolved_launcher_path is None or not Path(resolved_launcher_path).exists():
-        items.append(
-            ValidationItem(
-                "warning",
-                "PortableApps Generator",
-                "PortableApps.com Launcher Generator was not found. Create Project + EXE will not be able to build the launcher.",
-            )
-        )
-    else:
-        items.append(ValidationItem("ok", "PortableApps Generator", str(resolved_launcher_path)))
-
-    return items
-
-
-def render_validation_report(items: list[ValidationItem]) -> tuple[str, str, str]:
-    errors = [item for item in items if item.level == "error"]
-    warnings = [item for item in items if item.level == "warning"]
-    oks = [item for item in items if item.level == "ok"]
-    if errors:
-        title = "Validation Found Errors"
-        status = "error"
-    elif warnings:
-        title = "Validation Completed With Warnings"
-        status = "warning"
-    else:
-        title = "Validation Passed"
-        status = "ok"
-
-    sections: list[str] = []
-    if errors:
-        sections.append("Errors")
-        sections.extend(f"- {item.label}: {item.detail}" for item in errors)
-    if warnings:
-        if sections:
-            sections.append("")
-        sections.append("Warnings")
-        sections.extend(f"- {item.label}: {item.detail}" for item in warnings)
-    if oks:
-        if sections:
-            sections.append("")
-        sections.append("Checks")
-        sections.extend(f"- {item.label}: {item.detail}" for item in oks)
-    return title, "\n".join(sections), status
-
-
-def build_appinfo_ini(project: LauncherProject) -> str:
-    category = project.category or "Utilities"
-    homepage = project.homepage or "https://portableapps.com/"
-    publisher = project.publisher or project.app_name
-    description = project.description or f"{project.app_name} portable launcher"
-    version = project.version or "1.0.0.0"
-    display_version = project.display_version or version
-    control_start = project.control_start.strip() or f"{project.portable_name}.exe"
-    control_icons = project.control_icons.strip() or "1"
-    lines = [
-        "[Format]",
-        "Type=PortableApps.comFormat",
-        "Version=3.9",
-        "",
-        "[Details]",
-        f"Name={project.app_name} Portable",
-        f"AppID={project.portable_name}",
-        f"Publisher={publisher}",
-        f"Trademarks={project.trademarks.strip()}",
-        f"Homepage={homepage}",
-        f"Category={category}",
-        f"Description={description}",
-        f"Language={project.language.strip() or 'Multilingual'}",
-        f"Donate={project.donate.strip()}",
-        f"InstallType={project.install_type.strip()}",
-        "",
-        "[License]",
-        f"Shareable={bool_to_ini(project.license_shareable)}",
-        f"OpenSource={bool_to_ini(project.license_open_source)}",
-        f"Freeware={bool_to_ini(project.license_freeware)}",
-        f"CommercialUse={bool_to_ini(project.license_commercial_use)}",
-        f"EULAVersion={project.license_eula_version.strip()}",
-        "",
-        "[Version]",
-        f"PackageVersion={version}",
-        f"DisplayVersion={display_version}",
-        "",
-        "[SpecialPaths]",
-        f"Plugins={project.special_plugins.strip()}",
-        "",
-        "[Dependencies]",
-        f"UsesGhostscript={project.dependency_uses_ghostscript.strip()}",
-        f"UsesJava={project.dependency_uses_java.strip()}",
-        f"UsesDotNetVersion={project.dependency_uses_dotnet_version.strip()}",
-        f"Requires64bitOS={project.dependency_requires_64bit_os.strip()}",
-        f"RequiresPortableApp={project.dependency_requires_portable_app.strip()}",
-        f"RequiresAdmin={project.dependency_requires_admin.strip()}",
-        "",
-        "[Control]",
-        f"Icons={control_icons}",
-        f"Start={control_start}",
-    ]
-    optional_control_values = (
-        ("ExtractIcon", project.control_extract_icon),
-        ("ExtractName", project.control_extract_name),
-        ("BaseAppID", project.control_base_app_id),
-        ("BaseAppID64", project.control_base_app_id_64),
-        ("BaseAppIDARM64", project.control_base_app_id_arm64),
-        ("ExitEXE", project.control_exit_exe),
-        ("ExitParameters", project.control_exit_parameters),
-    )
-    for key, value in optional_control_values:
-        if value.strip():
-            lines.append(f"{key}={value.strip()}")
-
-    association_values = {
-        "FileTypes": project.association_file_types.strip(),
-        "FileTypeCommandLine": project.association_file_type_command_line.strip(),
-        "FileTypeCommandLine-extension": project.association_file_type_command_line_extension.strip(),
-        "Protocols": project.association_protocols.strip(),
-        "ProtocolCommandLine": project.association_protocol_command_line.strip(),
-        "ProtocolCommandLine-protocol": project.association_protocol_command_line_protocol.strip(),
-        "SendToCommandLine": project.association_send_to_command_line.strip(),
-        "ShellCommand": project.association_shell_command.strip(),
-    }
-    has_associations = any(association_values.values()) or project.association_send_to or project.association_shell
-    if has_associations:
-        lines.extend(
-            [
-                "",
-                "[Associations]",
-                f"FileTypes={association_values['FileTypes']}",
-                f"FileTypeCommandLine={association_values['FileTypeCommandLine']}",
-                f"FileTypeCommandLine-extension={association_values['FileTypeCommandLine-extension']}",
-                f"Protocols={association_values['Protocols']}",
-                f"ProtocolCommandLine={association_values['ProtocolCommandLine']}",
-                f"ProtocolCommandLine-protocol={association_values['ProtocolCommandLine-protocol']}",
-                f"SendTo={bool_to_ini(project.association_send_to)}",
-                f"SendToCommandLine={association_values['SendToCommandLine']}",
-                f"Shell={bool_to_ini(project.association_shell)}",
-                f"ShellCommand={association_values['ShellCommand']}",
-            ]
-        )
-
-    file_type_icon_lines = clean_ini_lines(project.file_type_icons)
-    if file_type_icon_lines:
-        lines.extend(
-            [
-                "",
-                "[FileTypeIcons]",
-            ]
-        )
-        lines.extend(file_type_icon_lines)
-
-    lines.append("")
-    return "\n".join(lines)
-
-
-def build_launcher_ini(project: LauncherProject) -> str:
-    working_directory = resolve_project_tokens(project.working_directory, project)
-    lines = [
-        "[Launch]",
-        f"ProgramExecutable={project.package_name}\\{project.app_exe_name}",
-        f"CommandLineArguments={project.command_line}",
-        f"WorkingDirectory={working_directory}",
-        f"WaitForProgram={bool_to_ini(project.wait_for_program)}",
-        f"WaitForOtherInstances={bool_to_ini(project.wait_for_other_instances)}",
-    ]
-    if project.close_exe.strip():
-        lines.append(f"CloseEXE={project.close_exe.strip()}")
-    if project.min_os.strip():
-        lines.append(f"MinOS={project.min_os.strip()}")
-    if project.max_os.strip():
-        lines.append(f"MaxOS={project.max_os.strip()}")
-    if project.run_as_admin.strip():
-        lines.append(f"RunAsAdmin={project.run_as_admin.strip()}")
-    if project.refresh_shell_icons.strip():
-        lines.append(f"RefreshShellIcons={project.refresh_shell_icons.strip()}")
-    if project.hide_command_line_window:
-        lines.append("HideCommandLineWindow=true")
-    if project.no_spaces_in_path:
-        lines.append("NoSpacesInPath=true")
-    if project.supports_unc.strip():
-        lines.append(f"SupportsUNC={project.supports_unc.strip()}")
-    lines.extend(
-        [
-            "",
-            "[Activate]",
-            f"Registry={bool_to_ini(project.registry_enabled)}",
-        ]
-    )
-    if project.activate_java.strip():
-        lines.append(f"Java={project.activate_java.strip()}")
-    if project.activate_xml:
-        lines.append("XML=true")
-    lines.append("")
-    if project.live_mode_copy_app or project.live_mode_copy_data:
-        lines.extend(
-            [
-                "[LiveMode]",
-                f"CopyApp={bool_to_ini(project.live_mode_copy_app)}",
-                f"CopyData={bool_to_ini(project.live_mode_copy_data)}",
-                "",
-            ]
-        )
-    if project.files_move.strip():
-        lines.append("[FilesMove]")
-        lines.extend(clean_ini_lines(project.files_move))
-        lines.append("")
-    if project.directories_move.strip():
-        lines.append("[DirectoriesMove]")
-        lines.extend(clean_ini_lines(project.directories_move))
-        lines.append("")
-    if project.registry_keys.strip():
-        lines.append("[RegistryKeys]")
-        lines.extend(clean_ini_lines(project.registry_keys))
-        lines.append("")
-    if project.registry_cleanup_if_empty.strip():
-        lines.append("[RegistryCleanupIfEmpty]")
-        lines.extend(clean_ini_lines(project.registry_cleanup_if_empty))
-        lines.append("")
-    if project.registry_cleanup_force.strip():
-        lines.append("[RegistryCleanupForce]")
-        lines.extend(clean_ini_lines(project.registry_cleanup_force))
-        lines.append("")
-    return "\n".join(lines)
-
-
-def build_installer_ini(project: LauncherProject) -> str:
-    lines = []
-
-    if project.installer_close_exe.strip() or project.installer_close_name.strip():
-        lines.extend(
-            [
-                "[CheckRunning]",
-                f"CloseEXE={project.installer_close_exe.strip()}",
-                f"CloseName={project.installer_close_name.strip()}",
-                "",
-            ]
-        )
-
-    if project.include_installer_source:
-        lines.extend(
-            [
-                "[Source]",
-                "IncludeInstallerSource=true",
-                "",
-            ]
-        )
-
-    if project.remove_app_directory or project.remove_data_directory or project.remove_other_directory:
-        lines.append("[MainDirectories]")
-        lines.append(f"RemoveAppDirectory={bool_to_ini(project.remove_app_directory)}")
-        lines.append(f"RemoveDataDirectory={bool_to_ini(project.remove_data_directory)}")
-        lines.append(f"RemoveOtherDirectory={bool_to_ini(project.remove_other_directory)}")
-        lines.append("")
-
-    has_optional_components = (
-        project.optional_components_enabled
-        or project.main_section_title.strip()
-        or project.main_section_description.strip()
-        or project.optional_section_title.strip()
-        or project.optional_section_description.strip()
-        or project.optional_section_selected_install_type.strip()
-        or project.optional_section_not_selected_install_type.strip()
-        or project.optional_section_preselected.strip()
-    )
-    if has_optional_components:
-        lines.extend(
-            [
-                "[OptionalComponents]",
-                f"OptionalComponents={bool_to_ini(True)}",
-            ]
-        )
-        optional_values = (
-            ("MainSectionTitle", project.main_section_title),
-            ("MainSectionDescription", project.main_section_description),
-            ("OptionalSectionTitle", project.optional_section_title),
-            ("OptionalSectionDescription", project.optional_section_description),
-            ("OptionalSectionSelectedInstallType", project.optional_section_selected_install_type),
-            ("OptionalSectionNotSelectedInstallType", project.optional_section_not_selected_install_type),
-            ("OptionalSectionPreSelectedIfNonEnglishInstall", project.optional_section_preselected),
-        )
-        for key, value in optional_values:
-            if value.strip():
-                lines.append(f"{key}={value.strip()}")
-        lines.append("")
-
-    language_lines = clean_ini_lines(project.installer_languages)
-    if language_lines:
-        lines.append("[Languages]")
-        lines.extend(language_lines)
-        lines.append("")
-
-    preserve_directory_lines = clean_ini_lines(project.preserve_directories)
-    if preserve_directory_lines:
-        lines.append("[DirectoriesToPreserve]")
-        lines.extend(preserve_directory_lines)
-        lines.append("")
-
-    remove_directory_lines = clean_ini_lines(project.remove_directories)
-    if remove_directory_lines:
-        lines.append("[DirectoriesToRemove]")
-        lines.extend(remove_directory_lines)
-        lines.append("")
-
-    preserve_file_lines = clean_ini_lines(project.preserve_files)
-    if preserve_file_lines:
-        lines.append("[FilesToPreserve]")
-        lines.extend(preserve_file_lines)
-        lines.append("")
-
-    remove_file_lines = clean_ini_lines(project.remove_files)
-    if remove_file_lines:
-        lines.append("[FilesToRemove]")
-        lines.extend(remove_file_lines)
-        lines.append("")
-
-    return "\n".join(lines).strip()
-
-
-def build_readme(project: LauncherProject) -> str:
-    return "\n".join(
-        [
-            f"{project.app_name} Portable launcher project",
-            "",
-            "Generated by PortableApps.com Launcher Maker.",
-            "",
-            "Next steps:",
-            "1. Review App\\AppInfo\\appinfo.ini.",
-            f"2. Review App\\AppInfo\\Launcher\\{project.portable_name}.ini.",
-            "3. Build the launcher with the PortableApps.com Launcher.",
-            "4. Package the folder with the PortableApps.com Installer if desired.",
-            "",
-            "This tool creates the PortableApps.com-format project structure and launcher configuration.",
-            "It does not include the official PortableApps.com Launcher compiler.",
-            "",
-        ]
-    )
-
-
-def build_help_html(project: LauncherProject) -> str:
-    return load_help_html_template().replace("**App Name**", html.escape(project.app_name))
-
-
-def create_help_images(help_images_dir: Path, appinfo_dir: Path) -> None:
-    icon_png = appinfo_dir / "appicon_128.png"
-    shutil.copy2(icon_png, help_images_dir / "appicon_128.png")
-
-    copied_all_template_assets = True
-    for output_name in HELP_IMAGE_FILENAMES:
-        source_path = help_image_asset_path(output_name)
-        if source_path.exists():
-            shutil.copy2(source_path, help_images_dir / output_name)
-        else:
-            copied_all_template_assets = False
-
-    if copied_all_template_assets:
-        return
-
-    with Image.open(icon_png) as source_icon:
-        source_icon.convert("RGBA").save(help_images_dir / "Favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)])
-
-    header = Image.new("RGBA", (840, 60), "#b31616")
-    ImageDraw.Draw(header).rectangle((0, 44, 840, 60), fill="#8c1010")
-    header.save(help_images_dir / "Help_Background_Header.png")
-
-    footer = Image.new("RGBA", (840, 16), "#8c1010")
-    footer.save(help_images_dir / "Help_Background_Footer.png")
-
-    logo = Image.new("RGBA", (320, 48), (255, 255, 255, 0))
-    logo_draw = ImageDraw.Draw(logo)
-    logo_draw.text((8, 12), "PortableApps.com", fill="#ffffff")
-    logo.save(help_images_dir / "Help_Logo_Top.png")
-
-    donation = Image.new("RGBA", (150, 32), "#f6c343")
-    donation_draw = ImageDraw.Draw(donation)
-    donation_draw.rounded_rectangle((0, 0, 149, 31), radius=6, fill="#f6c343", outline="#b88900")
-    donation_draw.text((18, 9), "Make a Donation", fill="#5a4200")
-    donation.save(help_images_dir / "Donation_Button.png")
-
-
-def create_launcher_template_assets(launcher_dir: Path) -> None:
-    splash_path = splash_asset_path()
-    if splash_path.exists():
-        with Image.open(splash_path) as splash_image:
-            splash_image.convert("RGB").save(launcher_dir / "Splash.jpg", format="JPEG", quality=95)
-        return
-
-    for filename in LAUNCHER_TEMPLATE_FILENAMES:
-        source_path = launcher_template_asset_path(filename)
-        if source_path.exists():
-            shutil.copy2(source_path, launcher_dir / filename)
-
-
-def ensure_empty_or_create(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def is_relative_to_path(path: Path, potential_parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(potential_parent.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def copy_application_folder(source_exe: Path, destination_dir: Path, project_root: Path | None = None) -> None:
-    source_dir = source_exe.parent.resolve()
-    resolved_destination = destination_dir.resolve()
-    resolved_project_root = project_root.resolve() if project_root is not None else resolved_destination
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    for item in source_dir.iterdir():
-        resolved_item = item.resolve()
-        if (
-            is_relative_to_path(resolved_item, resolved_destination)
-            or is_relative_to_path(resolved_item, resolved_project_root)
-            or is_relative_to_path(resolved_destination, resolved_item)
-            or is_relative_to_path(resolved_project_root, resolved_item)
-        ):
-            continue
-        target = destination_dir / item.name
-        if item.is_dir():
-            shutil.copytree(item, target, dirs_exist_ok=True)
-        elif item.is_file():
-            shutil.copy2(item, target)
-
-
-def make_fallback_icon(app_name: str) -> Image.Image:
-    fallback_asset = asset_path(DEFAULT_FALLBACK_ICON)
-    if fallback_asset.exists():
-        try:
-            with Image.open(fallback_asset) as icon:
-                normalized = ImageOps.contain(icon.convert("RGBA"), (256, 256), Image.Resampling.LANCZOS)
-                canvas = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-                offset = ((256 - normalized.width) // 2, (256 - normalized.height) // 2)
-                canvas.alpha_composite(normalized, offset)
-                return canvas
-        except OSError:
-            pass
-
-    image = Image.new("RGBA", (256, 256), "#216b52")
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((18, 18, 238, 238), radius=34, fill="#ffffff")
-    draw.rounded_rectangle((34, 34, 222, 222), radius=24, fill="#216b52")
-    initials = "".join(part[:1].upper() for part in re.findall(r"[A-Za-z0-9]+", app_name or "")[:2]) or "PA"
-    bbox = draw.textbbox((0, 0), initials)
-    x = (256 - (bbox[2] - bbox[0])) / 2
-    y = (256 - (bbox[3] - bbox[1])) / 2 - 4
-    draw.text((x, y), initials, fill="#ffffff")
-    return image
-
-
-def read_uint16(data: bytes, offset: int) -> int:
-    return struct.unpack_from("<H", data, offset)[0]
-
-
-def read_uint32(data: bytes, offset: int) -> int:
-    return struct.unpack_from("<I", data, offset)[0]
-
-
-def get_pe_sections_and_resource_offset(data: bytes):
-    if data[:2] != b"MZ":
-        raise ValueError("Not a PE executable.")
-    pe_offset = read_uint32(data, 0x3C)
-    if data[pe_offset:pe_offset + 4] != b"PE\0\0":
-        raise ValueError("Invalid PE header.")
-
-    file_header = pe_offset + 4
-    section_count = read_uint16(data, file_header + 2)
-    optional_header_size = read_uint16(data, file_header + 16)
-    optional_header = file_header + 20
-    magic = read_uint16(data, optional_header)
-    data_directory = optional_header + (112 if magic == 0x20B else 96)
-    resource_rva = read_uint32(data, data_directory + 8 * 2)
-    section_table = optional_header + optional_header_size
-
-    sections = []
-    for index in range(section_count):
-        section = section_table + index * 40
-        virtual_size = read_uint32(data, section + 8)
-        virtual_address = read_uint32(data, section + 12)
-        raw_size = read_uint32(data, section + 16)
-        raw_pointer = read_uint32(data, section + 20)
-        sections.append((virtual_address, max(virtual_size, raw_size), raw_pointer))
-
-    def rva_to_offset(rva: int) -> int:
-        for virtual_address, size, raw_pointer in sections:
-            if virtual_address <= rva < virtual_address + size:
-                return raw_pointer + (rva - virtual_address)
-        raise ValueError(f"Could not map RVA {rva}.")
-
-    return sections, rva_to_offset(resource_rva), rva_to_offset
-
-
-def parse_resource_name(data: bytes, resource_base: int, value: int):
-    if value & 0x80000000:
-        offset = resource_base + (value & 0x7FFFFFFF)
-        length = read_uint16(data, offset)
-        raw = data[offset + 2:offset + 2 + length * 2]
-        return raw.decode("utf-16le", errors="replace")
-    return value & 0xFFFF
-
-
-def parse_resource_directory(data: bytes, resource_base: int, directory_offset: int):
-    named_count = read_uint16(data, directory_offset + 12)
-    id_count = read_uint16(data, directory_offset + 14)
-    entries = []
-    entry_offset = directory_offset + 16
-    for index in range(named_count + id_count):
-        current = entry_offset + index * 8
-        raw_name = read_uint32(data, current)
-        raw_target = read_uint32(data, current + 4)
-        entries.append(
-            (
-                parse_resource_name(data, resource_base, raw_name),
-                bool(raw_target & 0x80000000),
-                resource_base + (raw_target & 0x7FFFFFFF),
-            )
-        )
-    return entries
-
-
-def collect_resource_data(data: bytes, resource_base: int, rva_to_offset, resource_type: int):
-    root_entries = parse_resource_directory(data, resource_base, resource_base)
-    type_entry = next((entry for entry in root_entries if entry[0] == resource_type and entry[1]), None)
-    if type_entry is None:
-        return {}
-
-    resources = {}
-    for resource_id, has_child, id_offset in parse_resource_directory(data, resource_base, type_entry[2]):
-        if not has_child:
-            continue
-        language_entries = parse_resource_directory(data, resource_base, id_offset)
-        if not language_entries:
-            continue
-        _language, language_has_child, data_entry_offset = language_entries[0]
-        if language_has_child:
-            continue
-        data_rva = read_uint32(data, data_entry_offset)
-        data_size = read_uint32(data, data_entry_offset + 4)
-        file_offset = rva_to_offset(data_rva)
-        resources[resource_id] = data[file_offset:file_offset + data_size]
-    return resources
-
-
-def extract_icon_group_from_exe(source_exe: Path, destination_ico: Path, icon_index: int = 0) -> bool:
-    try:
-        data = source_exe.read_bytes()
-        _sections, resource_base, rva_to_offset = get_pe_sections_and_resource_offset(data)
-        groups = collect_resource_data(data, resource_base, rva_to_offset, 14)
-        icons = collect_resource_data(data, resource_base, rva_to_offset, 3)
-    except (OSError, struct.error, ValueError):
-        return False
-
-    if not groups or not icons:
-        return False
-
-    group_keys = sorted(groups, key=lambda value: str(value).casefold())
-    selected_key = group_keys[min(max(0, int(icon_index or 0)), len(group_keys) - 1)]
-    group_data = groups[selected_key]
-    if len(group_data) < 6:
-        return False
-
-    reserved, icon_type, icon_count = struct.unpack_from("<HHH", group_data, 0)
-    if icon_type != 1 or icon_count == 0:
-        return False
-
-    icon_entries = []
-    image_chunks = []
-    offset = 6
-    image_offset = 6 + icon_count * 16
-    for _index in range(icon_count):
-        if offset + 14 > len(group_data):
-            return False
-        width, height, color_count, reserved_byte, planes, bit_count, image_size, icon_id = struct.unpack_from(
-            "<BBBBHHIH",
-            group_data,
-            offset,
-        )
-        image = icons.get(icon_id)
-        if not image:
-            offset += 14
-            continue
-        icon_entries.append(
-            struct.pack(
-                "<BBBBHHII",
-                width,
-                height,
-                color_count,
-                reserved_byte,
-                planes,
-                bit_count,
-                len(image),
-                image_offset,
-            )
-        )
-        image_chunks.append(image)
-        image_offset += len(image)
-        offset += 14
-
-    if not image_chunks:
-        return False
-
-    destination_ico.write_bytes(
-        struct.pack("<HHH", reserved, icon_type, len(image_chunks)) + b"".join(icon_entries) + b"".join(image_chunks)
-    )
-    return True
-
-
-def extract_associated_icon(source_exe: Path, destination_ico: Path) -> bool:
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        (
-            "Add-Type -AssemblyName System.Drawing; "
-            "$icon = [System.Drawing.Icon]::ExtractAssociatedIcon($args[0]); "
-            "if ($null -eq $icon) { exit 2 }; "
-            "$stream = [System.IO.File]::Open($args[1], [System.IO.FileMode]::Create); "
-            "try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }"
-        ),
-        str(source_exe),
-        str(destination_ico),
-    ]
-    try:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0 and destination_ico.exists() and destination_ico.stat().st_size > 0
-
-
-def extract_embedded_icon(source_exe: Path, destination_ico: Path, icon_index: int = 0) -> bool:
-    if extract_icon_group_from_exe(source_exe, destination_ico, icon_index):
-        return True
-
-    icon_index = max(0, int(icon_index or 0))
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        (
-            "Add-Type -AssemblyName System.Drawing; "
-            "$memberDefinition = '"
-            "[DllImport(\"Shell32.dll\", CharSet=CharSet.Unicode)] "
-            "public static extern int SHDefExtractIcon(string file, int index, uint flags, IntPtr[] large, IntPtr[] small, uint size); "
-            "[DllImport(\"User32.dll\")] "
-            "public static extern bool DestroyIcon(IntPtr handle);"
-            "'; "
-            "Add-Type -Namespace Win32 -Name NativeIcons -MemberDefinition $memberDefinition; "
-            "$index = [int]$args[2]; "
-            "$large = New-Object IntPtr[] 1; "
-            "$small = New-Object IntPtr[] 1; "
-            "$size = 0; "
-            "$hr = [Win32.NativeIcons]::SHDefExtractIcon($args[0], $index, 0, $large, $small, $size); "
-            "if ($hr -ne 0 -or $large[0] -eq [IntPtr]::Zero) { "
-            "  $hr = [Win32.NativeIcons]::SHDefExtractIcon($args[0], 0, 0, $large, $small, $size); "
-            "} "
-            "$handle = $large[0]; "
-            "if ($handle -eq [IntPtr]::Zero) { $handle = $small[0] }; "
-            "if ($handle -eq [IntPtr]::Zero) { exit 3 }; "
-            "$icon = [System.Drawing.Icon]::FromHandle($handle); "
-            "$stream = [System.IO.File]::Open($args[1], [System.IO.FileMode]::Create); "
-            "try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose(); [void][Win32.NativeIcons]::DestroyIcon($handle); if ($small[0] -ne [IntPtr]::Zero) { [void][Win32.NativeIcons]::DestroyIcon($small[0]) } }"
-        ),
-        str(source_exe),
-        str(destination_ico),
-        str(icon_index),
-    ]
-    try:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    if result.returncode == 0 and destination_ico.exists() and destination_ico.stat().st_size > 0:
-        return True
-    return extract_associated_icon(source_exe, destination_ico)
-
-
-def load_icon_image(icon_source: Path, app_name: str) -> Image.Image:
-    if icon_source.exists():
-        try:
-            with Image.open(icon_source) as icon:
-                best_frame = None
-                best_area = -1
-                frame_count = getattr(icon, "n_frames", 1)
-                for frame_index in range(frame_count):
-                    try:
-                        icon.seek(frame_index)
-                    except EOFError:
-                        break
-                    frame = icon.convert("RGBA")
-                    area = frame.width * frame.height
-                    if area > best_area:
-                        best_frame = frame.copy()
-                        best_area = area
-                if best_frame is not None:
-                    return best_frame
-        except OSError:
-            pass
-    return make_fallback_icon(app_name)
-
-
-def save_portableapps_icon_set(source_icon: Path, appinfo_dir: Path, app_name: str) -> None:
-    icon = load_icon_image(source_icon, app_name)
-    appinfo_dir.mkdir(parents=True, exist_ok=True)
-    ico_sizes = [(size, size) for size in PORTABLEAPPS_ICO_ICON_SIZES]
-    icon.save(appinfo_dir / "appicon.ico", sizes=ico_sizes)
-    for size in PORTABLEAPPS_PNG_ICON_SIZES:
-        resized = icon.resize((size, size), Image.Resampling.LANCZOS)
-        resized.save(appinfo_dir / f"appicon_{size}.png")
-
-
-def create_portableapps_icons(project: LauncherProject, appinfo_dir: Path, app_exe: Path) -> None:
-    if project.icon_source.strip():
-        save_portableapps_icon_set(Path(project.icon_source), appinfo_dir, project.app_name)
-        return
-
-    extracted_icon = appinfo_dir / ".extracted-appicon.ico"
-    try:
-        extract_embedded_icon(app_exe, extracted_icon, project.icon_index)
-        save_portableapps_icon_set(extracted_icon, appinfo_dir, project.app_name)
-    finally:
-        try:
-            extracted_icon.unlink()
-        except OSError:
-            pass
-
-
-def create_launcher_project(project: LauncherProject) -> Path:
-    if not project.app_name.strip():
-        raise ValueError("App name is required.")
-    if not project.package_name.strip():
-        raise ValueError("Package name is required.")
-    if not project.app_exe.strip():
-        raise ValueError("Application executable is required.")
-
-    app_exe = Path(project.app_exe)
-    if not app_exe.exists():
-        raise FileNotFoundError(f"Application executable not found: {app_exe}")
-
-    output_root = Path(project.output_dir)
-    if not str(output_root).strip():
-        raise ValueError("Output folder is required.")
-
-    project_root = output_root / project.portable_name
-    app_dir = project_root / "App" / project.package_name
-    appinfo_dir = project_root / "App" / "AppInfo"
-    launcher_dir = appinfo_dir / "Launcher"
-    data_dir = project_root / "Data" / "settings"
-    help_images_dir = project_root / "Other" / "Help" / "Images"
-    source_dir = project_root / "Other" / "Source"
-
-    for folder in (app_dir, launcher_dir, data_dir, help_images_dir, source_dir):
-        ensure_empty_or_create(folder)
-
-    if project.copy_app_files:
-        if app_exe.is_file():
-            copy_application_folder(app_exe, app_dir, project_root)
-        else:
-            raise ValueError("Application executable must be a file.")
-
-    create_portableapps_icons(project, appinfo_dir, app_exe)
-
-    (appinfo_dir / "appinfo.ini").write_text(build_appinfo_ini(project), encoding="utf-8")
-    installer_ini = build_installer_ini(project)
-    if installer_ini:
-        (appinfo_dir / "installer.ini").write_text(installer_ini + "\n", encoding="utf-8")
-    (launcher_dir / f"{project.portable_name}.ini").write_text(build_launcher_ini(project), encoding="utf-8")
-    create_launcher_template_assets(launcher_dir)
-    create_help_images(help_images_dir, appinfo_dir)
-    (project_root / "help.html").write_text(build_help_html(project), encoding="utf-8")
-    (source_dir / "Readme.txt").write_text(build_readme(project), encoding="utf-8")
-    return project_root
+        self._yscrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self._text.yview)
+        self._text.configure(yscrollcommand=self._yscrollbar.set)
+        self._text.grid(row=0, column=0, sticky="nsew")
+        self._yscrollbar.grid(row=0, column=1, sticky="ns")
+
+    def insert(self, *args, **kwargs):
+        return self._text.insert(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return self._text.delete(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        return self._text.get(*args, **kwargs)
+
+    def bind(self, sequence=None, func=None, add=None):
+        return self._text.bind(sequence, func, add)
+
+    def tag_configure(self, *args, **kwargs):
+        return self._text.tag_configure(*args, **kwargs)
+
+    def configure(self, cnf=None, **kwargs):
+        if cnf:
+            kwargs.update(cnf)
+        frame_options = {}
+        text_options = {}
+        option_aliases = {
+            "border_width": "bd",
+            "text_color": "fg",
+            "fg_color": "bg",
+        }
+        for key, value in kwargs.items():
+            key = option_aliases.get(key, key)
+            if key in {"bg", "background", "highlightthickness", "highlightbackground"}:
+                frame_options[key] = value
+            else:
+                text_options[key] = value
+        if frame_options:
+            super().configure(**frame_options)
+        if text_options:
+            return self._text.configure(**text_options)
+        return None
+
+    config = configure
+
+    def cget(self, key):
+        if key in {"bg", "background", "highlightthickness", "highlightbackground"}:
+            return super().cget(key)
+        key = {"border_width": "bd", "text_color": "fg", "fg_color": "bg"}.get(key, key)
+        return self._text.cget(key)
+
+    def __getattr__(self, name):
+        return getattr(self._text, name)
 
 
 class PortableAppsLauncherMaker:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("PortableApps.com Launcher Maker")
-        self.root.geometry("980x700")
-        self.root.minsize(840, 620)
+        self.root.geometry("1120x760")
+        self.root.minsize(980, 660)
         self.app_icon_image = None
 
-        self.colors = {
-            "page": "#eef2f7",
-            "surface": "#ffffff",
-            "surface_alt": "#f8fafc",
-            "toolbar": "#f7f9fc",
-            "border": "#d8e0ea",
-            "field": "#fbfdff",
-            "field_border": "#b7c4d3",
-            "field_focus": "#8fb8a2",
-            "text": "#17212f",
-            "muted": "#627386",
-            "accent": "#1f7a57",
-            "accent_hover": "#186346",
-            "accent_soft": "#e6f4ee",
-            "accent_line": "#b7dcc8",
-            "card_header": "#f8fafc",
-            "card_header_active": "#eef5fb",
-            "danger": "#b42318",
-            "danger_hover": "#912018",
-            "danger_soft": "#fbe9e7",
-            "danger_line": "#ebbbb6",
-            "soft": "#edf4fa",
-            "warn": "#9a5b12",
-            "warn_soft": "#fff6e8",
-            "warn_line": "#f2d3a0",
-        }
+        self.colors = UI_COLORS.copy()
 
         self.vars = {
             "app_name": tk.StringVar(),
@@ -1444,6 +269,12 @@ class PortableAppsLauncherMaker:
         self.icon_preview_caption = None
         self.icon_preview_images = []
         self.icon_preview_cache_key = None
+        self.sidebar_icon_preview_labels = []
+        self.sidebar_icon_preview_caption = None
+        self.sidebar_icon_preview_images = []
+        self.sidebar_splash_preview_label = None
+        self.sidebar_splash_preview_caption = None
+        self.sidebar_splash_preview_image = None
         self.panel_cards = []
         self.create_button = None
         self.validate_button = None
@@ -1471,298 +302,19 @@ class PortableAppsLauncherMaker:
         self.refresh_preview()
 
     def setup_styles(self):
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        self.checkbox_style_images = self.build_checkbox_style_images()
-        style.configure("TFrame", background=self.colors["page"])
-        style.configure("Surface.TFrame", background=self.colors["surface"])
-        style.configure("PanelBody.TFrame", background=self.colors["surface"])
-        style.configure("TLabel", background=self.colors["page"], foreground=self.colors["text"], font=("Segoe UI", 9))
-        style.configure("Muted.TLabel", background=self.colors["page"], foreground=self.colors["muted"], font=("Segoe UI", 9))
-        style.configure("Surface.TLabel", background=self.colors["surface"], foreground=self.colors["text"], font=("Segoe UI", 9))
-        style.configure("PanelTitle.TLabel", background=self.colors["surface"], foreground=self.colors["text"], font=("Segoe UI Semibold", 10))
-        style.configure("PanelNote.TLabel", background=self.colors["surface"], foreground=self.colors["muted"], font=("Segoe UI", 8))
-        style.configure("Title.TLabel", background=self.colors["page"], foreground=self.colors["text"], font=("Segoe UI Semibold", 16))
-        style.configure(
-            "TButton",
-            font=("Segoe UI Semibold", 9),
-            padding=(14, 8),
-            background=self.colors["surface"],
-            foreground=self.colors["text"],
-            borderwidth=1,
-            focusthickness=0,
-            relief="solid",
-            focuscolor=self.colors["surface"],
-            bordercolor=self.colors["border"],
-            lightcolor=self.colors["border"],
-            darkcolor=self.colors["border"],
-        )
-        style.map(
-            "TButton",
-            background=[
-                ("active", self.colors["surface_alt"]),
-                ("pressed", self.colors["surface_alt"]),
-            ],
-            foreground=[("disabled", self.colors["muted"])],
-        )
-        style.configure(
-            "Accent.TButton",
-            background=self.colors["accent"],
-            foreground="#ffffff",
-            borderwidth=1,
-            focusthickness=0,
-            focuscolor=self.colors["accent"],
-            relief="solid",
-            bordercolor=self.colors["accent"],
-            lightcolor=self.colors["accent"],
-            darkcolor=self.colors["accent"],
-        )
-        style.map(
-            "Accent.TButton",
-            background=[
-                ("active", self.colors["accent_hover"]),
-                ("pressed", self.colors["accent_hover"]),
-            ],
-            foreground=[("active", "#ffffff"), ("pressed", "#ffffff")],
-        )
-        style.configure(
-            "Danger.TButton",
-            background=self.colors["danger_soft"],
-            foreground=self.colors["danger"],
-            padding=(12, 8),
-            borderwidth=1,
-            focusthickness=0,
-            focuscolor=self.colors["danger_line"],
-            relief="solid",
-            bordercolor=self.colors["danger_line"],
-            lightcolor=self.colors["danger_line"],
-            darkcolor=self.colors["danger_line"],
-        )
-        style.map(
-            "Danger.TButton",
-            background=[
-                ("active", self.colors["danger"]),
-                ("pressed", self.colors["danger"]),
-            ],
-            foreground=[("active", "#ffffff"), ("pressed", "#ffffff")],
-        )
-        style.element_create(
-            "Web.Checkbutton.indicator",
-            "image",
-            self.checkbox_style_images["unchecked"],
-            ("disabled", "selected", self.checkbox_style_images["checked_disabled"]),
-            ("disabled", self.checkbox_style_images["unchecked_disabled"]),
-            ("pressed", "selected", self.checkbox_style_images["checked_hover"]),
-            ("active", "selected", self.checkbox_style_images["checked_hover"]),
-            ("selected", self.checkbox_style_images["checked"]),
-            ("pressed", self.checkbox_style_images["unchecked_hover"]),
-            ("active", self.checkbox_style_images["unchecked_hover"]),
-            border=0,
-            sticky="w",
-        )
-        style.layout(
-            "TCheckbutton",
-            [
-                (
-                    "Checkbutton.padding",
-                    {
-                        "sticky": "nswe",
-                        "children": [
-                            ("Web.Checkbutton.indicator", {"side": "left", "sticky": "w"}),
-                            ("Checkbutton.label", {"side": "left", "sticky": "w"}),
-                        ],
-                    },
-                )
-            ],
-        )
-        style.configure("TCheckbutton", background=self.colors["surface"], foreground=self.colors["text"], font=("Segoe UI", 9), padding=(0, 2))
-        style.map("TCheckbutton", foreground=[("disabled", self.colors["muted"])], background=[("active", self.colors["surface"])])
-        style.configure(
-            "TEntry",
-            fieldbackground=self.colors["field"],
-            background=self.colors["field"],
-            foreground=self.colors["text"],
-            padding=(12, 8, 12, 8),
-            borderwidth=1,
-            relief="flat",
-            bordercolor=self.colors["field_border"],
-            lightcolor=self.colors["field_border"],
-            darkcolor=self.colors["field_border"],
-        )
-        style.map(
-            "TEntry",
-            fieldbackground=[
-                ("disabled", self.colors["surface_alt"]),
-                ("readonly", self.colors["surface_alt"]),
-                ("focus", "#ffffff"),
-            ],
-            foreground=[
-                ("disabled", self.colors["muted"]),
-                ("readonly", self.colors["text"]),
-            ],
-            bordercolor=[
-                ("focus", self.colors["field_focus"]),
-            ],
-            lightcolor=[
-                ("focus", self.colors["field_focus"]),
-            ],
-            darkcolor=[
-                ("focus", self.colors["field_focus"]),
-            ],
-        )
-        style.configure(
-            "Web.TCombobox",
-            fieldbackground=self.colors["field"],
-            background=self.colors["field"],
-            foreground=self.colors["text"],
-            padding=(12, 8, 12, 8),
-            arrowsize=15,
-            borderwidth=1,
-            relief="flat",
-            arrowcolor=self.colors["muted"],
-            bordercolor=self.colors["field_border"],
-            lightcolor=self.colors["field_border"],
-            darkcolor=self.colors["field_border"],
-            selectbackground="#ffffff",
-            selectforeground=self.colors["text"],
-        )
-        style.map(
-            "Web.TCombobox",
-            fieldbackground=[
-                ("disabled", self.colors["surface_alt"]),
-                ("readonly", self.colors["field"]),
-                ("focus", "#ffffff"),
-            ],
-            background=[
-                ("disabled", self.colors["surface_alt"]),
-                ("readonly", self.colors["field"]),
-                ("focus", "#ffffff"),
-            ],
-            foreground=[("disabled", self.colors["muted"])],
-            arrowcolor=[
-                ("disabled", self.colors["muted"]),
-                ("pressed", self.colors["text"]),
-                ("active", self.colors["text"]),
-            ],
-            bordercolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-            lightcolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-            darkcolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-        )
-        style.configure(
-            "TCombobox",
-            fieldbackground=self.colors["field"],
-            background=self.colors["field"],
-            foreground=self.colors["text"],
-            padding=(10, 6, 10, 6),
-            arrowsize=11,
-            borderwidth=1,
-            relief="flat",
-            arrowcolor=self.colors["muted"],
-            bordercolor=self.colors["field_border"],
-            lightcolor=self.colors["field_border"],
-            darkcolor=self.colors["field_border"],
-        )
-        style.map(
-            "TCombobox",
-            fieldbackground=[
-                ("disabled", self.colors["surface_alt"]),
-                ("readonly", self.colors["field"]),
-                ("focus", "#ffffff"),
-            ],
-            background=[
-                ("disabled", self.colors["surface_alt"]),
-                ("readonly", self.colors["field"]),
-                ("focus", "#ffffff"),
-            ],
-            foreground=[("disabled", self.colors["muted"])],
-            arrowcolor=[
-                ("disabled", self.colors["muted"]),
-                ("pressed", self.colors["text"]),
-                ("active", self.colors["text"]),
-            ],
-            bordercolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-            lightcolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-            darkcolor=[
-                ("focus", self.colors["field_focus"]),
-                ("active", self.colors["field_focus"]),
-            ],
-        )
-        style.configure(
-            "Vertical.TScrollbar",
-            background=self.colors["surface_alt"],
-            troughcolor=self.colors["toolbar"],
-            bordercolor=self.colors["border"],
-            arrowcolor=self.colors["muted"],
-            darkcolor=self.colors["surface_alt"],
-            lightcolor=self.colors["surface_alt"],
-            gripcount=0,
-        )
-        style.configure("TNotebook", background=self.colors["surface"], borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure(
-            "TNotebook.Tab",
-            background=self.colors["page"],
-            foreground=self.colors["muted"],
-            padding=(16, 10),
-            borderwidth=0,
-        )
-        style.map(
-            "TNotebook.Tab",
-            background=[
-                ("selected", self.colors["surface"]),
-                ("active", self.colors["surface_alt"]),
-            ],
-            foreground=[("selected", self.colors["text"]), ("active", self.colors["text"])],
-        )
-
-    def build_checkbox_style_images(self):
-        def make_checkbox(fill, border, check=None):
-            scale = 4
-            image = Image.new("RGBA", (24 * scale, 20 * scale), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(image)
-            draw.ellipse((1 * scale, 1 * scale, 19 * scale, 19 * scale), fill=fill, outline=border, width=2 * scale)
-            if check:
-                draw.line((5 * scale, 10 * scale, 8 * scale, 13 * scale), fill=check, width=2 * scale)
-                draw.line((8 * scale, 13 * scale, 14 * scale, 7 * scale), fill=check, width=2 * scale)
-            image = image.resize((24, 20), Image.Resampling.LANCZOS)
-            return ImageTk.PhotoImage(image)
-
-        return {
-            "unchecked": make_checkbox("#ffffff", self.colors["border"]),
-            "unchecked_hover": make_checkbox(self.colors["surface_alt"], self.colors["accent_line"]),
-            "unchecked_disabled": make_checkbox(self.colors["surface_alt"], self.colors["border"]),
-            "checked": make_checkbox(self.colors["accent"], self.colors["accent"], "#ffffff"),
-            "checked_hover": make_checkbox(self.colors["accent_hover"], self.colors["accent_hover"], "#ffffff"),
-            "checked_disabled": make_checkbox(self.colors["accent_line"], self.colors["accent_line"], "#ffffff"),
-        }
+        self.checkbox_style_images = setup_ttk_styles(self.colors)
 
     def create_combobox(self, parent, *, textvariable, values, width=None):
-        kwargs = {
-            "textvariable": textvariable,
-            "values": values,
-            "style": "Web.TCombobox",
-            "state": "readonly",
-        }
-        if width is not None:
-            kwargs["width"] = width
-        return ttk.Combobox(parent, **kwargs)
+        return themed_create_combobox(self.colors, parent, textvariable=textvariable, values=values, width=width)
+
+    def create_entry(self, parent, *, textvariable, state="normal", width=None):
+        return themed_create_entry(self.colors, parent, textvariable=textvariable, state=state, width=width)
+
+    def make_button(self, parent, *, text, command, style=None, state="normal", width=None):
+        return themed_make_button(self.colors, parent, text=text, command=command, style=style, state=state, width=width)
+
+    def create_scrollbar(self, parent, *, orientation, command):
+        return themed_create_scrollbar(self.colors, parent, orientation=orientation, command=command)
 
     def apply_window_icon(self, window):
         icon_png = asset_path(SOFTWARE_ICON_PNG)
@@ -1794,6 +346,7 @@ class PortableAppsLauncherMaker:
         body.grid(row=0, column=0, sticky="nsew")
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
+        body.rowconfigure(1, weight=0)
 
         self.root.bind_all("<MouseWheel>", self.scroll_form, add="+")
         self.root.bind_all("<Button-4>", self.scroll_form, add="+")
@@ -1801,8 +354,73 @@ class PortableAppsLauncherMaker:
 
         notebook_shell = self.create_panel(body, "Project Settings", "Build and preview the PortableApps project from one place.", collapsible=False)
         notebook_shell.grid(row=0, column=0, sticky="nsew")
+        notebook_shell.header.columnconfigure(1, weight=0)
         notebook_shell.content.columnconfigure(0, weight=1)
         notebook_shell.content.rowconfigure(1, weight=1)
+
+        paths_bar = tk.Frame(
+            notebook_shell.header,
+            bg=self.colors["card_header"],
+            highlightthickness=0,
+            bd=0,
+        )
+        paths_bar.grid(row=0, column=1, sticky="e", padx=(24, 0))
+        paths_bar.columnconfigure(0, weight=0)
+        paths_bar.columnconfigure(1, weight=1, minsize=360)
+        paths_bar.columnconfigure(2, weight=0)
+
+        tk.Label(
+            paths_bar,
+            text="Application EXE",
+            bg=self.colors["card_header"],
+            fg=self.colors["text"],
+            font=("Segoe UI", 8),
+            anchor="e",
+        ).grid(
+            row=0,
+            column=0,
+            sticky="e",
+            padx=(0, 8),
+            pady=(0, 6),
+        )
+        self.create_entry(paths_bar, textvariable=self.vars["app_exe"]).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=(0, 6),
+        )
+        self.make_button(paths_bar, text="Browse", command=self.choose_app_exe).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+            pady=(0, 6),
+        )
+
+        tk.Label(
+            paths_bar,
+            text="Output Folder",
+            bg=self.colors["card_header"],
+            fg=self.colors["text"],
+            font=("Segoe UI", 8),
+            anchor="e",
+        ).grid(
+            row=1,
+            column=0,
+            sticky="e",
+            padx=(0, 8),
+        )
+        self.create_entry(paths_bar, textvariable=self.vars["output_dir"]).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+        )
+        self.make_button(paths_bar, text="Browse", command=self.choose_output_dir).grid(
+            row=1,
+            column=2,
+            sticky="ew",
+        )
 
         tab_bar = tk.Frame(notebook_shell.content, bg=self.colors["toolbar"], highlightthickness=1, highlightbackground=self.colors["border"], bd=0)
         tab_bar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
@@ -1810,30 +428,38 @@ class PortableAppsLauncherMaker:
         tabs_host.pack(side="left", anchor="w", padx=8, pady=8)
         actions = tk.Frame(tab_bar, bg=self.colors["toolbar"], highlightthickness=0, bd=0)
         actions.pack(side="right", anchor="e", padx=8, pady=8)
-        self.help_button = ttk.Button(actions, text="Help", style="Danger.TButton", command=self.open_help)
+        self.help_button = self.make_button(actions, text="Help", style="Danger.TButton", command=self.open_help)
         self.help_button.pack(side="left")
 
         tab_content = ttk.Frame(notebook_shell.content, style="Surface.TFrame")
         tab_content.grid(row=1, column=0, sticky="nsew")
         tab_content.columnconfigure(0, weight=1)
+        tab_content.columnconfigure(1, weight=0)
         tab_content.rowconfigure(0, weight=1)
 
-        appinfo_tab, appinfo_content = self.create_scrollable_tab(tab_content)
-        launcher_tab, launcher_content = self.create_scrollable_tab(tab_content)
-        installer_tab, installer_content = self.create_scrollable_tab(tab_content)
-        registry_tab, registry_content = self.create_scrollable_tab(tab_content)
-        icon_tab, icon_content = self.create_scrollable_tab(tab_content)
-        templates_tab, templates_content = self.create_scrollable_tab(tab_content)
-        preview_tab = ttk.Frame(tab_content, style="Surface.TFrame", padding=0)
-        preview_tab.columnconfigure(0, weight=1)
-        preview_tab.rowconfigure(0, weight=0)
+        editor_host = ttk.Frame(tab_content, style="Surface.TFrame")
+        editor_host.grid(row=0, column=0, sticky="nsew")
+        editor_host.columnconfigure(0, weight=1)
+        editor_host.rowconfigure(0, weight=1)
+
+        preview_sidebar = ttk.Frame(tab_content, style="Surface.TFrame", padding=(12, 0, 0, 0), width=450)
+        preview_sidebar.grid(row=0, column=1, sticky="ns")
+        preview_sidebar.grid_propagate(False)
+        preview_sidebar.columnconfigure(0, weight=1)
+        preview_sidebar.rowconfigure(0, weight=1)
+
+        appinfo_tab, appinfo_content = self.create_scrollable_tab(editor_host)
+        launcher_tab, launcher_content = self.create_scrollable_tab(editor_host)
+        installer_tab, installer_content = self.create_scrollable_tab(editor_host)
+        registry_tab, registry_content = self.create_scrollable_tab(editor_host)
+        icon_tab, icon_content = self.create_scrollable_tab(editor_host)
+        templates_tab, templates_content = self.create_scrollable_tab(editor_host)
         self.create_main_tab(tabs_host, "appinfo", "appinfo.ini", appinfo_tab)
         self.launcher_tab = self.create_main_tab(tabs_host, "launcher", "AppNamePortable.ini", launcher_tab)
         self.create_main_tab(tabs_host, "installer", "installer.ini", installer_tab)
         self.create_main_tab(tabs_host, "registry", "Registry", registry_tab)
         self.create_main_tab(tabs_host, "icon", "Icon", icon_tab)
         self.create_main_tab(tabs_host, "templates", "Splash", templates_tab)
-        self.create_main_tab(tabs_host, "preview", "Preview", preview_tab)
         self.select_main_tab("appinfo")
 
         self.create_appinfo_editor(appinfo_content)
@@ -1845,11 +471,64 @@ class PortableAppsLauncherMaker:
         self.create_icon_editor(icon_content)
         self.create_template_editor(templates_content)
 
-        preview_tab.rowconfigure(1, weight=1)
-        preview_bar = tk.Frame(preview_tab, bg=self.colors["toolbar"], highlightthickness=1, highlightbackground=self.colors["border"], bd=0)
-        preview_bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        preview_shell = self.create_panel(
+            preview_sidebar,
+            "Preview",
+            "Live project preview while you edit settings.",
+            collapsible=False,
+        )
+        preview_shell.grid(row=0, column=0, sticky="nsew")
+        preview_shell.content.columnconfigure(0, weight=1)
+        preview_shell.content.rowconfigure(0, weight=1)
 
-        preview_content = ttk.Frame(preview_tab, style="Surface.TFrame")
+        preview_canvas = tk.Canvas(
+            preview_shell.content,
+            bg=self.colors["surface"],
+            highlightthickness=0,
+            bd=0,
+            yscrollincrement=24,
+        )
+        preview_scrollbar = self.create_scrollbar(preview_shell.content, orientation="vertical", command=preview_canvas.yview)
+        preview_canvas.configure(yscrollcommand=preview_scrollbar.set)
+        preview_canvas.grid(row=0, column=0, sticky="nsew")
+        preview_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        preview_body = ttk.Frame(preview_canvas, style="Surface.TFrame")
+        preview_body.columnconfigure(0, weight=1)
+        preview_window_id = preview_canvas.create_window((0, 0), window=preview_body, anchor="nw")
+
+        preview_body.bind("<Configure>", lambda _event: preview_canvas.configure(scrollregion=preview_canvas.bbox("all")))
+        preview_canvas.bind("<Configure>", lambda event: preview_canvas.itemconfigure(preview_window_id, width=event.width))
+
+        preview_canvas._scroll_canvas = preview_canvas
+        preview_body._scroll_canvas = preview_canvas
+        preview_canvas.bind("<Enter>", lambda _event, target=preview_canvas: self.set_active_scroll_canvas(target), add="+")
+        preview_body.bind("<Enter>", lambda _event, target=preview_canvas: self.set_active_scroll_canvas(target), add="+")
+        preview_canvas.bind("<Leave>", lambda _event, target=preview_canvas: self.clear_active_scroll_canvas(target), add="+")
+        preview_body.bind("<Leave>", lambda _event, target=preview_canvas: self.clear_active_scroll_canvas(target), add="+")
+
+        file_preview_shell = self.create_panel(
+            preview_body,
+            "File Folder Preview",
+            "Generated project folder structure.",
+            collapsible=False,
+        )
+        file_preview_shell.grid(row=0, column=0, sticky="nsew")
+        file_preview_shell.content.columnconfigure(0, weight=1)
+        file_preview_shell.content.rowconfigure(1, weight=1)
+
+        preview_bar = tk.Frame(
+            file_preview_shell.content,
+            bg=self.colors["toolbar"],
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+            bd=0,
+        )
+        preview_bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        preview_bar.columnconfigure(0, weight=1)
+        preview_bar.columnconfigure(1, weight=1)
+
+        preview_content = ttk.Frame(file_preview_shell.content, style="Surface.TFrame")
         preview_content.grid(row=1, column=0, sticky="nsew")
         preview_content.columnconfigure(0, weight=1)
         preview_content.rowconfigure(0, weight=1)
@@ -1864,53 +543,126 @@ class PortableAppsLauncherMaker:
             tab = ttk.Frame(preview_content, style="Surface.TFrame", padding=0)
             tab.columnconfigure(0, weight=1)
             tab.rowconfigure(0, weight=1)
-            text = self.create_preview_text(tab)
-            text.grid(row=0, column=0, sticky="nsew")
+            preview_shell_widget, text = self.create_preview_text(tab)
+            preview_shell_widget.grid(row=0, column=0, sticky="nsew")
             self.preview_texts[key] = text
             self.create_preview_tab(preview_bar, key, label, tab)
         self.select_preview_tab("folder")
-        footer_shell = self.create_panel(self.root, "Project Paths", collapsible=False)
-        footer_shell.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
-        footer = footer_shell.content
-        footer.columnconfigure(1, weight=1)
-        footer.columnconfigure(4, weight=1)
 
-        ttk.Label(footer, textvariable=self.status_var, style="PanelNote.TLabel").grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 10))
-        ttk.Label(footer, textvariable=self.generator_status_var, style="PanelNote.TLabel").grid(row=0, column=5, columnspan=2, sticky="e", pady=(0, 10))
-        ttk.Label(footer, text="Application EXE", style="Surface.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        ttk.Entry(footer, textvariable=self.vars["app_exe"]).grid(row=1, column=1, sticky="ew")
-        ttk.Button(footer, text="Browse", command=self.choose_app_exe).grid(row=1, column=2, sticky="ew", padx=(8, 16))
-        ttk.Label(footer, text="Output Folder", style="Surface.TLabel").grid(row=1, column=3, sticky="w", padx=(0, 8))
-        ttk.Entry(footer, textvariable=self.vars["output_dir"]).grid(row=1, column=4, sticky="ew")
-        ttk.Button(footer, text="Browse", command=self.choose_output_dir).grid(row=1, column=5, sticky="ew", padx=(8, 16))
-        actions = ttk.Frame(footer, style="PanelBody.TFrame")
-        actions.grid(row=1, column=6, sticky="e")
-        self.validate_button = ttk.Button(actions, text="Validate", command=self.validate_current_project)
-        self.validate_button.pack(side="left", padx=(0, 8))
-        self.create_button = ttk.Button(actions, text="Create Project + EXE", style="Accent.TButton", command=self.create_project)
-        self.create_button.pack(side="left")
-
-    def create_preview_text(self, parent):
-        text = tk.Text(
-            parent,
-            height=18,
-            wrap="none",
-            bg="#fbfcfe",
-            fg=self.colors["text"],
-            relief="flat",
-            bd=0,
+        sidebar_icon_shell = self.create_panel(
+            preview_body,
+            "Icon Preview",
+            "Current generated icon set.",
+            collapsible=False,
+        )
+        sidebar_icon_shell.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        sidebar_icon_group = sidebar_icon_shell.content
+        sidebar_icon_group.columnconfigure(0, weight=1)
+        sidebar_icon_frame = tk.Frame(
+            sidebar_icon_group,
+            bg=self.colors["surface_alt"],
             highlightthickness=1,
             highlightbackground=self.colors["border"],
-            font=("Consolas", 9),
+            bd=0,
             padx=10,
             pady=10,
         )
-        text.tag_configure("folder", foreground="#2f5f98", font=("Consolas", 9, "bold"))
-        text.tag_configure("important", foreground=self.colors["accent_hover"], font=("Consolas", 9, "bold"))
-        text.tag_configure("optional", foreground=self.colors["muted"], font=("Consolas", 9, "italic"))
-        text.tag_configure("comment", foreground=self.colors["muted"], font=("Consolas", 9))
-        text.tag_configure("plain", foreground=self.colors["text"], font=("Consolas", 9))
-        return text
+        sidebar_icon_frame.grid(row=0, column=0, sticky="ew")
+        sidebar_icon_sizes = tk.Frame(sidebar_icon_frame, bg=self.colors["surface_alt"])
+        sidebar_icon_sizes.pack(anchor="center")
+        self.sidebar_icon_preview_labels = []
+        for row, (size_label, display_size) in enumerate(ICON_PREVIEW_DISPLAY_SIZES):
+            item_frame = tk.Frame(sidebar_icon_sizes, bg=self.colors["surface_alt"])
+            item_frame.grid(row=row, column=0, pady=(0 if row == 0 else 8, 0), sticky="s")
+            holder = tk.Frame(item_frame, bg=self.colors["surface_alt"], width=max(display_size + 10, 40), height=max(display_size + 10, 40))
+            holder.pack()
+            holder.pack_propagate(False)
+            icon_label = tk.Label(holder, bg=self.colors["surface_alt"])
+            icon_label.pack(expand=True)
+            self.sidebar_icon_preview_labels.append(icon_label)
+            ttk.Label(item_frame, text=f"{size_label}px", style="PanelNote.TLabel").pack(pady=(4, 0))
+        self.sidebar_icon_preview_caption = ttk.Label(
+            sidebar_icon_group,
+            text="Waiting for icon source...",
+            style="PanelNote.TLabel",
+            wraplength=320,
+        )
+        self.sidebar_icon_preview_caption.grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        sidebar_splash_shell = self.create_panel(
+            preview_body,
+            "Splash Preview",
+            "Current default splash asset.",
+            collapsible=False,
+        )
+        sidebar_splash_shell.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        sidebar_splash_group = sidebar_splash_shell.content
+        sidebar_splash_group.columnconfigure(0, weight=1)
+        sidebar_splash_frame = tk.Frame(
+            sidebar_splash_group,
+            bg=self.colors["surface_alt"],
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+            bd=0,
+            padx=10,
+            pady=10,
+        )
+        sidebar_splash_frame.grid(row=0, column=0, sticky="ew")
+        sidebar_splash_frame.columnconfigure(0, weight=1)
+        self.sidebar_splash_preview_label = ttk.Label(sidebar_splash_frame, style="Surface.TLabel")
+        self.sidebar_splash_preview_label.grid(row=0, column=0, sticky="n")
+        self.sidebar_splash_preview_caption = ttk.Label(
+            sidebar_splash_group,
+            text="Waiting for splash preview...",
+            style="PanelNote.TLabel",
+            wraplength=320,
+        )
+        self.sidebar_splash_preview_caption.grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        actions = ttk.Frame(body, style="TFrame")
+        actions.grid(row=1, column=0, sticky="e", pady=(10, 0))
+        actions.columnconfigure(0, weight=0)
+        actions.columnconfigure(1, weight=0)
+        self.validate_button = self.make_button(actions, text="Validate", command=self.validate_current_project)
+        self.validate_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.create_button = self.make_button(actions, text="Create Project + EXE", style="Accent.TButton", command=self.create_project)
+        self.create_button.grid(row=0, column=1, sticky="ew")
+
+    def create_preview_text(self, parent):
+        shell = tk.Frame(
+            parent,
+            bg=self.colors["field_border"],
+            highlightthickness=1,
+            highlightbackground=self.colors["field_border"],
+            bd=0,
+        )
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+        text = tk.Text(
+            shell,
+            height=12,
+            wrap="none",
+            bg=self.colors["field_soft"],
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            selectbackground=self.colors["accent_soft"],
+            selectforeground=self.colors["text"],
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=("Consolas", 10),
+        )
+        yscrollbar = self.create_scrollbar(shell, orientation="vertical", command=text.yview)
+        text.configure(yscrollcommand=yscrollbar.set)
+        text.grid(row=0, column=0, sticky="nsew")
+        yscrollbar.grid(row=0, column=1, sticky="ns")
+        text.tag_configure("folder", foreground="#2f5f98", font=("Consolas", 10, "bold"))
+        text.tag_configure("important", foreground=self.colors["accent_hover"], font=("Consolas", 10, "bold"))
+        text.tag_configure("optional", foreground=self.colors["muted"], font=("Consolas", 10, "italic"))
+        text.tag_configure("comment", foreground=self.colors["muted"], font=("Consolas", 10))
+        text.tag_configure("plain", foreground=self.colors["text"], font=("Consolas", 10))
+        text.configure(state="disabled")
+        return shell, text
 
     def create_main_tab(self, parent, key, text, frame):
         frame.grid(row=0, column=0, sticky="nsew")
@@ -1975,6 +727,9 @@ class PortableAppsLauncherMaker:
         frame.grid(row=0, column=0, sticky="nsew")
         frame.grid_remove()
 
+        button_index = len(self.preview_tab_buttons)
+        row = button_index // 2
+        column = button_index % 2
         button = tk.Label(
             parent,
             text=text,
@@ -1990,7 +745,7 @@ class PortableAppsLauncherMaker:
             highlightcolor=self.colors["toolbar"],
             takefocus=0,
         )
-        button.pack(side="left", padx=(8 if not self.preview_tab_buttons else 0, 6), pady=8)
+        button.grid(row=row, column=column, sticky="ew", padx=(8, 8), pady=(8, 0 if row == 0 else 8))
         button.bind("<Button-1>", lambda _event, selected=key: self.select_preview_tab(selected), add="+")
         button.bind("<Enter>", lambda _event, hovered=key: self.set_preview_tab_hover(hovered), add="+")
         button.bind("<Leave>", lambda _event: self.set_preview_tab_hover(None), add="+")
@@ -2042,7 +797,7 @@ class PortableAppsLauncherMaker:
             bd=0,
             yscrollincrement=24,
         )
-        scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        scrollbar = self.create_scrollbar(outer, orientation="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -2051,6 +806,8 @@ class PortableAppsLauncherMaker:
         content.columnconfigure(0, weight=1)
         window_id = canvas.create_window((0, 0), window=content, anchor="nw")
 
+        # Keep the embedded frame sized to the canvas width so card layouts
+        # reflow naturally while the canvas handles vertical scrolling.
         content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
 
@@ -2135,6 +892,8 @@ class PortableAppsLauncherMaker:
         self.panel_cards.append(outer)
 
         if collapsible:
+            # Treat the whole header like a clickable card title bar, similar to
+            # a collapsible section in a web settings screen.
             self.set_panel_expanded(outer, expanded)
             for widget in (header, title_block, title_label, note_label, toggle_label):
                 if widget is not None:
@@ -2172,21 +931,14 @@ class PortableAppsLauncherMaker:
         self.set_panel_expanded(panel, not panel.expanded)
 
     def create_text_editor(self, parent, height=4, background="#ffffff"):
-        return tk.Text(
+        field_background = self.colors["field_soft"] if background == "#ffffff" else background
+        return ScrolledText(
             parent,
-            height=height,
+            self.colors,
+            height=max(3, height),
+            background=field_background,
+            font=("Consolas", 11),
             wrap="none",
-            bg=self.colors["field"] if background == "#ffffff" else background,
-            fg=self.colors["text"],
-            relief="flat",
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=self.colors["field_border"],
-            highlightcolor=self.colors["field_focus"],
-            font=("Consolas", 9),
-            padx=8,
-            pady=8,
-            insertbackground=self.colors["text"],
         )
 
     def create_appinfo_editor(self, parent):
@@ -2224,43 +976,37 @@ class PortableAppsLauncherMaker:
             shell.grid(row=row, column=0, sticky="ew", pady=(0, 12))
             frame = shell.content
             for index in range(pair_count * 2):
-                frame.columnconfigure(index, weight=1 if index % 2 else 0)
+                frame.columnconfigure(index, weight=1)
             row += 1
             return frame
 
         def add_entry(frame, field_row, column, label, key, value_span=1):
-            ttk.Label(frame, text=label, style="Surface.TLabel").grid(
+            field = ttk.Frame(frame, style="PanelBody.TFrame")
+            field.grid(
                 row=field_row,
                 column=column,
-                sticky="w",
-                padx=(0, 6),
-                pady=4,
-            )
-            ttk.Entry(frame, textvariable=self.vars[key]).grid(
-                row=field_row,
-                column=column + 1,
-                columnspan=value_span,
+                columnspan=value_span + 1,
                 sticky="ew",
-                padx=(0, 8),
-                pady=4,
+                padx=(0, 10),
+                pady=(0, 10),
             )
+            field.columnconfigure(0, weight=1)
+            ttk.Label(field, text=label, style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            self.create_entry(field, textvariable=self.vars[key]).grid(row=1, column=0, sticky="ew")
 
         def add_combo(frame, field_row, column, label, key, values, value_span=1):
-            ttk.Label(frame, text=label, style="Surface.TLabel").grid(
+            field = ttk.Frame(frame, style="PanelBody.TFrame")
+            field.grid(
                 row=field_row,
                 column=column,
-                sticky="w",
-                padx=(0, 6),
-                pady=4,
-            )
-            self.create_combobox(frame, textvariable=self.vars[key], values=values).grid(
-                row=field_row,
-                column=column + 1,
-                columnspan=value_span,
+                columnspan=value_span + 1,
                 sticky="ew",
-                padx=(0, 8),
-                pady=4,
+                padx=(0, 10),
+                pady=(0, 10),
             )
+            field.columnconfigure(0, weight=1)
+            ttk.Label(field, text=label, style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            self.create_combobox(field, textvariable=self.vars[key], values=values).grid(row=1, column=0, sticky="ew")
 
         details = add_group("Details", 4, "Core app metadata used by PortableApps.com Format.")
         add_entry(details, 0, 0, "App Name", "app_name")
@@ -2335,7 +1081,7 @@ class PortableAppsLauncherMaker:
             variable=self.vars["registry_enabled"],
             command=self.update_registry_controls,
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
-        self.import_registry_button = ttk.Button(
+        self.import_registry_button = self.make_button(
             registry_group,
             text="Import Saved Registry (.reg)",
             command=self.import_registry_file,
@@ -2395,35 +1141,27 @@ class PortableAppsLauncherMaker:
         )
         launch_shell.grid(row=0, column=0, sticky="ew")
         launch_group = launch_shell.content
-        for column in range(6):
-            launch_group.columnconfigure(column, weight=1 if column % 2 else 0)
+        for column in range(3):
+            launch_group.columnconfigure(column, weight=1)
 
-        ttk.Label(launch_group, text="ProgramExecutable", style="Surface.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.launch_program_executable_var = tk.StringVar()
-        ttk.Entry(launch_group, textvariable=self.launch_program_executable_var, state="readonly").grid(row=0, column=1, columnspan=5, sticky="ew", pady=4)
+        program_field = ttk.Frame(launch_group, style="PanelBody.TFrame")
+        program_field.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        program_field.columnconfigure(0, weight=1)
+        ttk.Label(program_field, text="ProgramExecutable", style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.create_entry(program_field, textvariable=self.launch_program_executable_var, state="readonly").grid(row=1, column=0, sticky="ew")
 
-        ttk.Label(launch_group, text="Arguments", style="Surface.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(launch_group, textvariable=self.vars["command_line"]).grid(row=1, column=1, columnspan=5, sticky="ew", pady=4)
-
-        ttk.Label(launch_group, text="Working Dir", style="Surface.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(launch_group, textvariable=self.vars["working_directory"]).grid(row=2, column=1, columnspan=3, sticky="ew", pady=4, padx=(0, 10))
-        ttk.Label(launch_group, text="Close EXE", style="Surface.TLabel").grid(row=2, column=4, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(launch_group, textvariable=self.vars["close_exe"]).grid(row=2, column=5, sticky="ew", pady=4)
-
-        ttk.Label(launch_group, text="Min OS", style="Surface.TLabel").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(launch_group, textvariable=self.vars["min_os"], values=os_values, width=16).grid(row=3, column=1, sticky="w", pady=4, padx=(0, 10))
-        ttk.Label(launch_group, text="Max OS", style="Surface.TLabel").grid(row=3, column=2, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(launch_group, textvariable=self.vars["max_os"], values=os_values, width=16).grid(row=3, column=3, sticky="w", pady=4, padx=(0, 10))
-        ttk.Label(launch_group, text="Run As Admin", style="Surface.TLabel").grid(row=3, column=4, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(launch_group, textvariable=self.vars["run_as_admin"], values=run_as_admin_values, width=16).grid(row=3, column=5, sticky="w", pady=4)
-
-        ttk.Label(launch_group, text="Refresh Shell Icons", style="Surface.TLabel").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(launch_group, textvariable=self.vars["refresh_shell_icons"], values=refresh_shell_values, width=16).grid(row=4, column=1, sticky="w", pady=4, padx=(0, 10))
-        ttk.Label(launch_group, text="Supports UNC", style="Surface.TLabel").grid(row=4, column=2, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(launch_group, textvariable=self.vars["supports_unc"], values=unc_values, width=16).grid(row=4, column=3, sticky="w", pady=4)
+        self.add_stacked_entry(launch_group, 1, 0, "Arguments", "command_line", columnspan=3)
+        self.add_stacked_entry(launch_group, 2, 0, "Working Dir", "working_directory")
+        self.add_stacked_entry(launch_group, 2, 1, "Close EXE", "close_exe")
+        self.add_stacked_combo(launch_group, 3, 0, "Min OS", "min_os", os_values, width=16)
+        self.add_stacked_combo(launch_group, 3, 1, "Max OS", "max_os", os_values, width=16)
+        self.add_stacked_combo(launch_group, 3, 2, "Run As Admin", "run_as_admin", run_as_admin_values, width=16)
+        self.add_stacked_combo(launch_group, 4, 0, "Refresh Shell Icons", "refresh_shell_icons", refresh_shell_values, width=16)
+        self.add_stacked_combo(launch_group, 4, 1, "Supports UNC", "supports_unc", unc_values, width=16)
 
         launch_checks = ttk.Frame(launch_group, style="PanelBody.TFrame")
-        launch_checks.grid(row=5, column=0, columnspan=6, sticky="ew", pady=(10, 0))
+        launch_checks.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         launch_checks.columnconfigure(0, weight=1)
         launch_checks.columnconfigure(1, weight=1)
         ttk.Checkbutton(launch_checks, text="Copy selected app folder into App folder", variable=self.vars["copy_app_files"]).grid(row=0, column=0, sticky="w")
@@ -2439,11 +1177,9 @@ class PortableAppsLauncherMaker:
         )
         activate_shell.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         activate_group = activate_shell.content
-        activate_row = ttk.Frame(activate_group, style="PanelBody.TFrame")
-        activate_row.grid(row=0, column=0, sticky="w")
-        ttk.Label(activate_row, text="Java", style="Surface.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(activate_row, textvariable=self.vars["activate_java"], values=java_values, width=18).grid(row=0, column=1, sticky="w", pady=4)
-        ttk.Checkbutton(activate_group, text="Enable XML support", variable=self.vars["activate_xml"]).grid(row=1, column=0, sticky="w", pady=(10, 0))
+        activate_group.columnconfigure(0, weight=1)
+        self.add_stacked_combo(activate_group, 0, 0, "Java", "activate_java", java_values, width=18)
+        ttk.Checkbutton(activate_group, text="Enable XML support", variable=self.vars["activate_xml"]).grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         live_mode_shell = self.create_panel(
             parent,
@@ -2497,12 +1233,10 @@ class PortableAppsLauncherMaker:
         )
         check_running_shell.grid(row=0, column=0, sticky="ew")
         check_running_group = check_running_shell.content
-        row_frame = ttk.Frame(check_running_group, style="PanelBody.TFrame")
-        row_frame.grid(row=0, column=0, sticky="w")
-        ttk.Label(row_frame, text="CloseEXE", style="Surface.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(row_frame, textvariable=self.vars["installer_close_exe"], width=28).grid(row=0, column=1, sticky="w", pady=4, padx=(0, 12))
-        ttk.Label(row_frame, text="CloseName", style="Surface.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(row_frame, textvariable=self.vars["installer_close_name"], width=28).grid(row=0, column=3, sticky="w", pady=4)
+        check_running_group.columnconfigure(0, weight=1)
+        check_running_group.columnconfigure(1, weight=1)
+        self.add_stacked_entry(check_running_group, 0, 0, "CloseEXE", "installer_close_exe", width=28)
+        self.add_stacked_entry(check_running_group, 0, 1, "CloseName", "installer_close_name", width=28)
 
         source_shell = self.create_panel(
             parent,
@@ -2545,27 +1279,20 @@ class PortableAppsLauncherMaker:
         )
         optional_shell.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         optional_group = optional_shell.content
-        for column in range(6):
-            optional_group.columnconfigure(column, weight=1 if column % 2 else 0)
+        for column in range(3):
+            optional_group.columnconfigure(column, weight=1)
         ttk.Checkbutton(
             optional_group,
             text="Enable optional components section",
             variable=self.vars["optional_components_enabled"],
-        ).grid(row=0, column=0, columnspan=6, sticky="w", pady=(0, 10))
-        ttk.Label(optional_group, text="Main Title", style="Surface.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["main_section_title"]).grid(row=1, column=1, sticky="ew", pady=4, padx=(0, 10))
-        ttk.Label(optional_group, text="Main Description", style="Surface.TLabel").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["main_section_description"]).grid(row=1, column=3, columnspan=3, sticky="ew", pady=4)
-        ttk.Label(optional_group, text="Optional Title", style="Surface.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["optional_section_title"]).grid(row=2, column=1, sticky="ew", pady=4, padx=(0, 10))
-        ttk.Label(optional_group, text="Optional Description", style="Surface.TLabel").grid(row=2, column=2, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["optional_section_description"]).grid(row=2, column=3, columnspan=3, sticky="ew", pady=4)
-        ttk.Label(optional_group, text="Selected InstallType", style="Surface.TLabel").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["optional_section_selected_install_type"]).grid(row=3, column=1, sticky="ew", pady=4, padx=(0, 10))
-        ttk.Label(optional_group, text="Not Selected InstallType", style="Surface.TLabel").grid(row=3, column=2, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(optional_group, textvariable=self.vars["optional_section_not_selected_install_type"]).grid(row=3, column=3, sticky="ew", pady=4, padx=(0, 10))
-        ttk.Label(optional_group, text="Preselect If Non-English", style="Surface.TLabel").grid(row=3, column=4, sticky="w", padx=(0, 8), pady=4)
-        self.create_combobox(optional_group, textvariable=self.vars["optional_section_preselected"], values=("", "true", "false")).grid(row=3, column=5, sticky="ew", pady=4)
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        self.add_stacked_entry(optional_group, 1, 0, "Main Title", "main_section_title")
+        self.add_stacked_entry(optional_group, 1, 1, "Main Description", "main_section_description", columnspan=2)
+        self.add_stacked_entry(optional_group, 2, 0, "Optional Title", "optional_section_title")
+        self.add_stacked_entry(optional_group, 2, 1, "Optional Description", "optional_section_description", columnspan=2)
+        self.add_stacked_entry(optional_group, 3, 0, "Selected InstallType", "optional_section_selected_install_type")
+        self.add_stacked_entry(optional_group, 3, 1, "Not Selected InstallType", "optional_section_not_selected_install_type")
+        self.add_stacked_combo(optional_group, 3, 2, "Preselect If Non-English", "optional_section_preselected", ("", "true", "false"))
 
         languages_shell = self.create_panel(
             parent,
@@ -2657,15 +1384,16 @@ class PortableAppsLauncherMaker:
         )
         icon_shell.grid(row=0, column=0, sticky="ew")
         icon_group = icon_shell.content
-        row_frame = ttk.Frame(icon_group, style="PanelBody.TFrame")
-        row_frame.grid(row=0, column=0, sticky="w")
-
-        ttk.Label(row_frame, text="Icon Index", style="Surface.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 6), pady=4)
-        ttk.Entry(row_frame, textvariable=self.vars["icon_index"], width=5).grid(row=0, column=1, sticky="w", pady=4, padx=(0, 12))
-
-        ttk.Label(row_frame, text="Icon Override", style="Surface.TLabel").grid(row=0, column=2, sticky="w", padx=(0, 6), pady=4)
-        ttk.Entry(row_frame, textvariable=self.vars["icon_source"], width=42).grid(row=0, column=3, sticky="w", pady=4)
-        ttk.Button(row_frame, text="Browse", command=self.choose_icon).grid(row=0, column=4, sticky="w", padx=(8, 0), pady=4)
+        icon_group.columnconfigure(0, weight=0)
+        icon_group.columnconfigure(1, weight=1)
+        icon_group.columnconfigure(2, weight=0)
+        self.add_stacked_entry(icon_group, 0, 0, "Icon Index", "icon_index", width=5)
+        self.add_stacked_entry(icon_group, 0, 1, "Icon Override", "icon_source", width=42)
+        browse_field = ttk.Frame(icon_group, style="PanelBody.TFrame")
+        browse_field.grid(row=0, column=2, sticky="ew", pady=(0, 10))
+        browse_field.columnconfigure(0, weight=1)
+        ttk.Label(browse_field, text="Browse", style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.make_button(browse_field, text="Choose Icon", command=self.choose_icon).grid(row=1, column=0, sticky="ew")
 
         preview_shell = self.create_panel(
             parent,
@@ -2738,10 +1466,11 @@ class PortableAppsLauncherMaker:
         assets_toolbar = ttk.Frame(assets_group, style="PanelBody.TFrame")
         assets_toolbar.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
         assets_toolbar.columnconfigure(0, weight=1)
-        ttk.Button(assets_toolbar, text="Open Assets Folder", command=self.open_template_folder).grid(row=0, column=0, sticky="w")
+        self.make_button(assets_toolbar, text="Open Assets Folder", command=self.open_template_folder).grid(row=0, column=0, sticky="w")
 
         for row_index, (relative_path, label, filetypes) in enumerate(TEMPLATE_ASSET_SPECS, start=1):
-            self.add_template_asset_row(assets_group, row_index, relative_path, label, filetypes)
+            display_row = 1 + ((row_index - 1) * 2)
+            self.add_template_asset_row(assets_group, display_row, relative_path, label, filetypes)
 
         splash_shell = self.create_panel(
             parent,
@@ -2771,20 +1500,28 @@ class PortableAppsLauncherMaker:
         self.refresh_template_asset_views()
 
     def add_template_asset_row(self, parent, row, relative_path, label, filetypes):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 6), pady=4)
+        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 6), pady=(0, 6))
         path_var = tk.StringVar(value=str(asset_path(relative_path)))
         self.template_asset_path_vars[relative_path] = path_var
-        ttk.Entry(parent, textvariable=path_var, state="readonly").grid(row=row, column=1, sticky="ew", padx=(0, 6), pady=4)
-        ttk.Button(
-            parent,
+        field = ttk.Frame(parent, style="PanelBody.TFrame")
+        field.grid(row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        field.columnconfigure(0, weight=1)
+        self.create_entry(field, textvariable=path_var, state="readonly").grid(row=0, column=0, sticky="ew")
+
+        actions = ttk.Frame(parent, style="PanelBody.TFrame")
+        actions.grid(row=row + 1, column=2, columnspan=2, sticky="ew", pady=(0, 10))
+        actions.columnconfigure(0, weight=1)
+        actions.columnconfigure(1, weight=1)
+        self.make_button(
+            actions,
             text="Open",
             command=lambda target=relative_path: self.open_template_asset(target),
-        ).grid(row=row, column=2, sticky="ew", padx=(8, 8), pady=4)
-        ttk.Button(
-            parent,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.make_button(
+            actions,
             text="Replace",
             command=lambda target=relative_path, chooser=filetypes: self.replace_template_asset(target, chooser),
-        ).grid(row=row, column=3, sticky="ew", pady=4)
+        ).grid(row=0, column=1, sticky="ew")
 
     def open_template_folder(self):
         open_folder_in_explorer(asset_path(""))
@@ -2816,6 +1553,7 @@ class PortableAppsLauncherMaker:
             path_var.set(str(asset_path(relative_path)))
 
         if self.template_splash_label is None or self.template_splash_caption is None:
+            self.update_sidebar_splash_preview()
             return
 
         splash_path = splash_asset_path()
@@ -2826,6 +1564,7 @@ class PortableAppsLauncherMaker:
                 self.template_splash_image = ImageTk.PhotoImage(preview)
                 self.template_splash_label.configure(image=self.template_splash_image, text="")
                 self.template_splash_caption.configure(text=str(splash_path))
+                self.update_sidebar_splash_preview()
                 return
             except OSError:
                 pass
@@ -2833,6 +1572,7 @@ class PortableAppsLauncherMaker:
         self.template_splash_image = None
         self.template_splash_label.configure(image="", text="Splash preview unavailable")
         self.template_splash_caption.configure(text=str(splash_path))
+        self.update_sidebar_splash_preview()
 
     def create_help_content(self, parent, padx=0, pady=0):
         shell = self.create_panel(
@@ -2865,12 +1605,12 @@ class PortableAppsLauncherMaker:
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         toolbar.columnconfigure(0, weight=1)
         toolbar.columnconfigure(1, weight=1)
-        ttk.Button(toolbar, text="Additional Variable Help", command=self.open_variable_help_site).grid(
+        self.make_button(toolbar, text="Additional Variable Help", command=self.open_variable_help_site).grid(
             row=1,
             column=0,
             sticky="w",
         )
-        ttk.Button(toolbar, text="Additional Registry Help", command=self.open_registry_help_site).grid(
+        self.make_button(toolbar, text="Additional Registry Help", command=self.open_registry_help_site).grid(
             row=1,
             column=1,
             sticky="e",
@@ -2885,11 +1625,27 @@ class PortableAppsLauncherMaker:
 
     def add_inline_entry(self, parent, row, column, label, key, columnspan=1):
         ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=(0, 6), pady=2)
-        ttk.Entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=columnspan, sticky="ew", pady=2)
+        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=columnspan, sticky="ew", pady=2)
 
     def add_inline_combo(self, parent, row, column, label, key, values):
         ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=(0, 6), pady=2)
         self.create_combobox(parent, textvariable=self.vars[key], values=values).grid(row=row, column=column + 1, sticky="ew", pady=2)
+
+    def add_stacked_entry(self, parent, row, column, label, key, columnspan=1, width=None):
+        field = ttk.Frame(parent, style="PanelBody.TFrame")
+        field.grid(row=row, column=column, columnspan=columnspan, sticky="ew", padx=(0, 10), pady=(0, 10))
+        field.columnconfigure(0, weight=1)
+        ttk.Label(field, text=label, style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.create_entry(field, textvariable=self.vars[key], width=width).grid(row=1, column=0, sticky="ew")
+        return field
+
+    def add_stacked_combo(self, parent, row, column, label, key, values, columnspan=1, width=None):
+        field = ttk.Frame(parent, style="PanelBody.TFrame")
+        field.grid(row=row, column=column, columnspan=columnspan, sticky="ew", padx=(0, 10), pady=(0, 10))
+        field.columnconfigure(0, weight=1)
+        ttk.Label(field, text=label, style="Surface.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.create_combobox(field, textvariable=self.vars[key], values=values, width=width).grid(row=1, column=0, sticky="ew")
+        return field
 
     def add_multiline_control_editor(self, parent):
         text = self.add_bound_text(parent, 0, "control_text", height=4)
@@ -2911,7 +1667,10 @@ class PortableAppsLauncherMaker:
         return text
 
     def set_text_value(self, text, value):
-        previous_state = str(text.cget("state"))
+        try:
+            previous_state = str(text.cget("state"))
+        except Exception:
+            previous_state = str(getattr(text, "_textbox", text).cget("state"))
         if previous_state == "disabled":
             text.configure(state="normal")
         text.delete("1.0", "end")
@@ -3052,7 +1811,7 @@ class PortableAppsLauncherMaker:
 
     def add_entry_row(self, parent, row, label, key):
         ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 4), pady=5)
-        ttk.Entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=5)
+        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=5)
         return row + 1
 
     def add_card(self, parent, row, title):
@@ -3066,7 +1825,7 @@ class PortableAppsLauncherMaker:
 
     def add_card_entry(self, parent, row, column, label, key, value_span=1):
         ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=column, sticky="w", padx=(0, 4), pady=4)
-        ttk.Entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=value_span, sticky="ew", padx=(0, 6), pady=4)
+        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=value_span, sticky="ew", padx=(0, 6), pady=4)
 
     def add_card_combo(self, parent, row, column, label, key, values, value_span=1):
         ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=column, sticky="w", padx=(0, 4), pady=4)
@@ -3111,7 +1870,7 @@ class PortableAppsLauncherMaker:
 
         ttk.Label(block, text=title, style="Surface.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
         text = self.create_text_editor(block, height=height, background=self.colors["surface_alt"])
-        text.configure(wrap="word", highlightthickness=0)
+        text.configure(wrap="word", bd=0, highlightthickness=0)
         text.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 10))
         text.insert("1.0", content)
         text.configure(state="disabled")
@@ -3123,8 +1882,8 @@ class PortableAppsLauncherMaker:
 
     def add_path_row(self, parent, row, label, key, command, file_hint):
         ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 4), pady=5)
-        ttk.Entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, sticky="ew", padx=(0, 6), pady=5)
-        ttk.Button(parent, text="Browse", command=command).grid(row=row, column=2, sticky="ew", padx=(8, 0), pady=5)
+        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, sticky="ew", padx=(0, 6), pady=5)
+        self.make_button(parent, text="Browse", command=command).grid(row=row, column=2, sticky="ew", padx=(8, 0), pady=5)
         return row + 1
 
     def update_registry_controls(self):
@@ -3154,6 +1913,8 @@ class PortableAppsLauncherMaker:
             if app_exe.exists() and app_exe.is_file():
                 temp_icon = None
                 try:
+                    # Extract to a temp ICO so the preview uses the same decode path
+                    # as the generated PortableApps icon set.
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".ico") as handle:
                         temp_icon = Path(handle.name)
                     if extract_embedded_icon(app_exe, temp_icon, project.icon_index):
@@ -3174,7 +1935,12 @@ class PortableAppsLauncherMaker:
         return make_fallback_icon(app_name), "No icon source selected yet; showing fallback icon."
 
     def update_icon_preview(self):
-        if not self.icon_preview_labels or self.icon_preview_caption is None:
+        if (
+            not self.icon_preview_labels
+            or self.icon_preview_caption is None
+            or not self.sidebar_icon_preview_labels
+            or self.sidebar_icon_preview_caption is None
+        ):
             return
 
         cache_key = (
@@ -3188,13 +1954,40 @@ class PortableAppsLauncherMaker:
 
         image, caption = self.load_icon_preview_image()
         self.icon_preview_images = []
-        for icon_label, (_size_label, display_size) in zip(self.icon_preview_labels, ICON_PREVIEW_DISPLAY_SIZES):
+        self.sidebar_icon_preview_images = []
+        for index, (_size_label, display_size) in enumerate(ICON_PREVIEW_DISPLAY_SIZES):
+            icon_label = self.icon_preview_labels[index]
+            sidebar_icon_label = self.sidebar_icon_preview_labels[index]
             preview = image.resize((display_size, display_size), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(preview)
             self.icon_preview_images.append(photo)
             icon_label.configure(image=photo)
+            sidebar_photo = ImageTk.PhotoImage(preview)
+            self.sidebar_icon_preview_images.append(sidebar_photo)
+            sidebar_icon_label.configure(image=sidebar_photo)
         self.icon_preview_caption.configure(text=caption)
+        self.sidebar_icon_preview_caption.configure(text=caption)
         self.icon_preview_cache_key = cache_key
+
+    def update_sidebar_splash_preview(self):
+        if self.sidebar_splash_preview_label is None or self.sidebar_splash_preview_caption is None:
+            return
+
+        splash_path = splash_asset_path()
+        if splash_path.exists():
+            try:
+                with Image.open(splash_path) as splash_image:
+                    preview = ImageOps.contain(splash_image.convert("RGBA"), (300, 170), Image.Resampling.LANCZOS)
+                self.sidebar_splash_preview_image = ImageTk.PhotoImage(preview)
+                self.sidebar_splash_preview_label.configure(image=self.sidebar_splash_preview_image, text="")
+                self.sidebar_splash_preview_caption.configure(text=str(splash_path))
+                return
+            except OSError:
+                pass
+
+        self.sidebar_splash_preview_image = None
+        self.sidebar_splash_preview_label.configure(image="", text="Splash preview unavailable")
+        self.sidebar_splash_preview_caption.configure(text=str(splash_path))
 
     def update_launcher_tab_title(self, project):
         if self.launcher_tab is None:
@@ -3597,7 +2390,7 @@ class PortableAppsLauncherMaker:
         footer = ttk.Frame(shell)
         footer.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         footer.columnconfigure(0, weight=1)
-        ttk.Button(footer, text="Close", command=self.close_validation_popup).grid(row=0, column=1, sticky="e")
+        self.make_button(footer, text="Close", command=self.close_validation_popup).grid(row=0, column=1, sticky="e")
 
         window.grab_set()
         window.focus_force()
@@ -3869,6 +2662,7 @@ class PortableAppsLauncherMaker:
                 text.insert("1.0", content)
             text.configure(state="disabled")
         self.update_icon_preview()
+        self.update_sidebar_splash_preview()
 
     def build_folder_preview_text(self, project):
         installer_enabled = bool(build_installer_ini(project))
@@ -3876,6 +2670,8 @@ class PortableAppsLauncherMaker:
         launcher_ini = f"{project.portable_name}.ini"
         app_exe_name = project.app_exe_name or "YourApp.exe"
 
+        # Each tuple is (tag, line). The text tags let the preview emphasize
+        # generated-important files without giving up the lightweight text view.
         return [
             ("folder", f"{project.portable_name}\\\n"),
             ("important", f"|- {portable_exe}\n"),
@@ -3988,6 +2784,6 @@ class PortableAppsLauncherMaker:
             self.set_busy_state(False)
 
 def run():
-    root = tk.Tk()
+    root = create_root_window()
     PortableAppsLauncherMaker(root)
     root.mainloop()
