@@ -6,11 +6,10 @@ import tkinter as tk
 
 from PIL import Image
 
-from app.portableapps_launcher_maker import (
+from app.portableapps_core import (
     LAUNCHER_TEMPLATE_FILENAMES,
     LauncherProject,
     HELP_IMAGE_FILENAMES,
-    PortableAppsLauncherMaker,
     ValidationItem,
     build_validation_items,
     build_registry_key_entries_from_reg_text,
@@ -29,6 +28,7 @@ from app.portableapps_launcher_maker import (
     render_validation_report,
     validate_project,
 )
+from app.portableapps_launcher_maker import PortableAppsLauncherMaker
 
 
 class PortableAppsLauncherMakerTests(unittest.TestCase):

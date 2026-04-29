@@ -4,9 +4,6 @@ from tkinter import ttk
 from PIL import Image, ImageDraw, ImageTk
 
 
-_CHECKBUTTON_ELEMENT_INSTALLED = False
-
-
 UI_COLORS = {
     "page": "#eef2f7",
     "surface": "#ffffff",
@@ -69,8 +66,6 @@ def create_root_window():
 
 
 def setup_ttk_styles(colors):
-    global _CHECKBUTTON_ELEMENT_INSTALLED
-
     style = ttk.Style()
     try:
         style.theme_use("clam")
@@ -146,7 +141,7 @@ def setup_ttk_styles(colors):
         foreground=[("active", "#ffffff"), ("pressed", "#ffffff")],
     )
 
-    if not _CHECKBUTTON_ELEMENT_INSTALLED:
+    if "Web.Checkbutton.indicator" not in style.element_names():
         style.element_create(
             "Web.Checkbutton.indicator",
             "image",
@@ -161,7 +156,6 @@ def setup_ttk_styles(colors):
             border=0,
             sticky="w",
         )
-        _CHECKBUTTON_ELEMENT_INSTALLED = True
     style.layout(
         "TCheckbutton",
         [

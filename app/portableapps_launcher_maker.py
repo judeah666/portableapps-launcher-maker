@@ -6,50 +6,34 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageDraw, ImageOps, ImageTk
+from PIL import Image, ImageOps, ImageTk
 
 from app.portableapps_core import (
-    DEFAULT_SPLASH_ASSET,
-    HELP_IMAGE_FILENAMES,
     ICON_PREVIEW_DISPLAY_SIZES,
-    LAUNCHER_TEMPLATE_FILENAMES,
     PORTABLEAPPS_DEVELOPMENT_DOWNLOADS_URL,
     SOFTWARE_ICON,
     SOFTWARE_ICON_PNG,
     TEMPLATE_ASSET_SPECS,
-    ValidationItem,
     LauncherProject,
-    app_base_path,
     asset_path,
     bool_to_ini,
     build_appinfo_ini,
-    build_help_html,
     build_installer_ini,
     build_launcher_ini,
-    build_readme,
     build_registry_key_entries_from_reg_text,
     build_validation_items,
     clean_display_name,
     clean_identifier,
-    clean_ini_lines,
-    create_help_images,
     create_launcher_project,
-    create_launcher_template_assets,
     default_portableapps_output_dir,
     detect_app_name_from_exe,
     extract_embedded_icon,
     find_portableapps_launcher,
-    has_ini_lines,
-    help_image_asset_path,
     load_icon_image,
     make_fallback_icon,
     merge_ini_line_sets,
-    normalize_registry_path,
-    parse_registry_paths_from_reg_text,
     render_validation_report,
-    resolve_project_tokens,
     splash_asset_path,
-    validate_ini_mapping_lines,
     validate_project,
 )
 from app.portableapps_ui_theme import (
@@ -1623,14 +1607,6 @@ class PortableAppsLauncherMaker:
         self.add_help_block(blocks, 0, 0, "Variables", variable_content, height=28)
         self.add_help_block(blocks, 0, 1, "Registry", registry_content, height=28)
 
-    def add_inline_entry(self, parent, row, column, label, key, columnspan=1):
-        ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=(0, 6), pady=2)
-        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=columnspan, sticky="ew", pady=2)
-
-    def add_inline_combo(self, parent, row, column, label, key, values):
-        ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=(0, 6), pady=2)
-        self.create_combobox(parent, textvariable=self.vars[key], values=values).grid(row=row, column=column + 1, sticky="ew", pady=2)
-
     def add_stacked_entry(self, parent, row, column, label, key, columnspan=1, width=None):
         field = ttk.Frame(parent, style="PanelBody.TFrame")
         field.grid(row=row, column=column, columnspan=columnspan, sticky="ew", padx=(0, 10), pady=(0, 10))
@@ -1800,47 +1776,6 @@ class PortableAppsLauncherMaker:
             canvas.yview_scroll(delta, "units")
         return "break"
 
-    def handle_notebook_wheel(self, event):
-        self.scroll_form(event)
-        return "break"
-
-    def bind_notebook_wheel(self, notebook):
-        notebook.bind("<MouseWheel>", self.handle_notebook_wheel, add="+")
-        notebook.bind("<Button-4>", self.handle_notebook_wheel, add="+")
-        notebook.bind("<Button-5>", self.handle_notebook_wheel, add="+")
-
-    def add_entry_row(self, parent, row, label, key):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 4), pady=5)
-        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=5)
-        return row + 1
-
-    def add_card(self, parent, row, title):
-        frame = ttk.LabelFrame(parent, text=title, padding=8)
-        frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-        return frame
-
-    def configure_card_columns(self, frame, count):
-        for column in range(count):
-            frame.columnconfigure(column, weight=1 if column % 2 else 0)
-
-    def add_card_entry(self, parent, row, column, label, key, value_span=1):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=column, sticky="w", padx=(0, 4), pady=4)
-        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=column + 1, columnspan=value_span, sticky="ew", padx=(0, 6), pady=4)
-
-    def add_card_combo(self, parent, row, column, label, key, values, value_span=1):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=column, sticky="w", padx=(0, 4), pady=4)
-        self.create_combobox(parent, textvariable=self.vars[key], values=values).grid(row=row, column=column + 1, columnspan=value_span, sticky="ew", padx=(0, 6), pady=4)
-
-    def add_section_label(self, parent, row, label):
-        ttk.Label(parent, text=label, style="Surface.TLabel", font=("Segoe UI Semibold", 10)).grid(
-            row=row,
-            column=0,
-            columnspan=3,
-            sticky="w",
-            pady=(14, 4),
-        )
-        return row + 1
-
     def add_multiline_row(self, parent, row, label, key, height=4):
         ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", pady=(0, 6))
         text = self.create_text_editor(parent, height=height)
@@ -1874,17 +1809,6 @@ class PortableAppsLauncherMaker:
         text.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 10))
         text.insert("1.0", content)
         text.configure(state="disabled")
-
-    def add_combo_row(self, parent, row, label, key, values):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 4), pady=5)
-        self.create_combobox(parent, textvariable=self.vars[key], values=values).grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=5)
-        return row + 1
-
-    def add_path_row(self, parent, row, label, key, command, file_hint):
-        ttk.Label(parent, text=label, style="Surface.TLabel").grid(row=row, column=0, sticky="w", padx=(0, 4), pady=5)
-        self.create_entry(parent, textvariable=self.vars[key]).grid(row=row, column=1, sticky="ew", padx=(0, 6), pady=5)
-        self.make_button(parent, text="Browse", command=command).grid(row=row, column=2, sticky="ew", padx=(8, 0), pady=5)
-        return row + 1
 
     def update_registry_controls(self):
         enabled = self.vars["registry_enabled"].get()
