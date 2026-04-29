@@ -14,6 +14,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 
+from app.version import APP_VERSION
+
 
 INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 PORTABLEAPPS_PNG_ICON_SIZES = (16, 32, 75, 128, 256)
@@ -1342,8 +1344,8 @@ class PortableAppsLauncherMaker:
             "description": tk.StringVar(),
             "donate": tk.StringVar(),
             "install_type": tk.StringVar(),
-            "version": tk.StringVar(value="1.0.0.0"),
-            "display_version": tk.StringVar(value="1.0.0.0"),
+            "version": tk.StringVar(value=APP_VERSION),
+            "display_version": tk.StringVar(value=APP_VERSION),
             "app_exe": tk.StringVar(),
             "output_dir": tk.StringVar(value=default_portableapps_output_dir()),
             "command_line": tk.StringVar(),

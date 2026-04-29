@@ -13,6 +13,19 @@ It helps generate the pieces needed for a portable app package, including:
 
 It can also call the **PortableApps.com Launcher Generator** to build the final portable launcher EXE when that tool is available.
 
+## Versioning
+
+This project uses a four-part version format:
+
+- `X.0.0.0`
+
+Example:
+- `1.0.0.0`
+- `2.0.0.0`
+
+The current app version is:
+- `1.0.0.0`
+
 ## Quick Start
 
 1. Launch the app
