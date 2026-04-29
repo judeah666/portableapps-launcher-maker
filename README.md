@@ -13,15 +13,69 @@ It helps generate the pieces needed for a portable app package, including:
 
 It can also call the **PortableApps.com Launcher Generator** to build the final portable launcher EXE when that tool is available.
 
+## Quick Start
+
+1. Launch the app
+2. Choose your application EXE
+3. Leave the output folder pointed at `X:\PortableApps` or choose another location
+4. Fill in the `appinfo.ini`, launcher, installer, registry, icon, and splash settings you need
+5. Click `Validate`
+6. Click `Create Project + EXE`
+
+If the PortableApps.com Launcher Generator is not installed, the app will offer to open:
+- [PortableApps.com Development](https://portableapps.com/development)
+
+## Screenshot
+
+![PortableApps Launcher Maker overview](docs/screenshots/portableapps-launcher-maker-overview.png)
+
 ## Features
 
 - creates the standard `App`, `Data`, and `Other` structure
 - copies the selected application's folder
 - extracts embedded icons from the selected EXE
+- generates PortableApps icon outputs:
+  - `appicon.ico`
+  - `appicon_16.png`
+  - `appicon_32.png`
+  - `appicon_75.png`
+  - `appicon_128.png`
+  - `appicon_256.png`
 - supports registry, icon, splash, and installer settings
+- imports saved `.reg` exports into `RegistryKeys`
 - previews generated folder layout and INI output live
+- shows icon preview sizes from largest to smallest
+- validates project settings before build
+- uses collapsible card sections and a more web-style settings UI
 - supports both 64-bit and 32-bit packaged app builds
 - creates GitHub-release ZIP assets from finished builds
+
+## Current UI
+
+The app is organized into focused tabs:
+- `appinfo.ini`
+- `AppNamePortable.ini`
+- `installer.ini`
+- `Registry`
+- `Icon`
+- `Splash`
+- `Preview`
+
+Notable UI behavior:
+- collapsible cards for major sections
+- fixed top tab navigation while forms scroll
+- styled folder preview with important generated files highlighted
+- icon preview strip showing multiple generated sizes
+- help popup for PAL variables and registry guidance
+
+## Build Workflow
+
+Typical workflow:
+1. Choose the application EXE and output folder
+2. Fill in `appinfo.ini`, launcher, installer, registry, icon, and splash settings
+3. Run `Validate`
+4. Run `Create Project + EXE`
+5. The tool generates the PortableApps project and, when available, calls the PortableApps.com Launcher Generator
 
 ## Running From Source
 
@@ -103,3 +157,4 @@ Recommended release assets:
 - `build/` and `dist/` are generated output and should not normally be committed
 - generated PyInstaller `.spec` files are intentionally ignored
 - building the final portable launcher EXE expects the **PortableApps.com Launcher Generator** to be installed and available
+- bundled default branding assets live in `app/assets/`

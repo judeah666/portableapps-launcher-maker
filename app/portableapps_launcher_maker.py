@@ -1305,17 +1305,22 @@ class PortableAppsLauncherMaker:
         self.app_icon_image = None
 
         self.colors = {
-            "page": "#eef3f7",
+            "page": "#eef2f7",
             "surface": "#ffffff",
-            "surface_alt": "#f6f9fc",
-            "toolbar": "#f3f7fb",
-            "border": "#d5dee8",
+            "surface_alt": "#f8fafc",
+            "toolbar": "#f7f9fc",
+            "border": "#d8e0ea",
+            "field": "#fbfdff",
+            "field_border": "#b7c4d3",
+            "field_focus": "#8fb8a2",
             "text": "#17212f",
             "muted": "#627386",
             "accent": "#1f7a57",
             "accent_hover": "#186346",
             "accent_soft": "#e6f4ee",
             "accent_line": "#b7dcc8",
+            "card_header": "#f8fafc",
+            "card_header_active": "#eef5fb",
             "danger": "#b42318",
             "danger_hover": "#912018",
             "danger_soft": "#fbe9e7",
@@ -1437,6 +1442,7 @@ class PortableAppsLauncherMaker:
         self.icon_preview_caption = None
         self.icon_preview_images = []
         self.icon_preview_cache_key = None
+        self.panel_cards = []
         self.create_button = None
         self.validate_button = None
         self.help_button = None
@@ -1574,15 +1580,15 @@ class PortableAppsLauncherMaker:
         style.map("TCheckbutton", foreground=[("disabled", self.colors["muted"])], background=[("active", self.colors["surface"])])
         style.configure(
             "TEntry",
-            fieldbackground="#ffffff",
-            background="#ffffff",
+            fieldbackground=self.colors["field"],
+            background=self.colors["field"],
             foreground=self.colors["text"],
             padding=(12, 8, 12, 8),
             borderwidth=1,
             relief="flat",
-            bordercolor=self.colors["border"],
-            lightcolor=self.colors["border"],
-            darkcolor=self.colors["border"],
+            bordercolor=self.colors["field_border"],
+            lightcolor=self.colors["field_border"],
+            darkcolor=self.colors["field_border"],
         )
         style.map(
             "TEntry",
@@ -1596,28 +1602,28 @@ class PortableAppsLauncherMaker:
                 ("readonly", self.colors["text"]),
             ],
             bordercolor=[
-                ("focus", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
             ],
             lightcolor=[
-                ("focus", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
             ],
             darkcolor=[
-                ("focus", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
             ],
         )
         style.configure(
             "Web.TCombobox",
-            fieldbackground="#ffffff",
-            background="#ffffff",
+            fieldbackground=self.colors["field"],
+            background=self.colors["field"],
             foreground=self.colors["text"],
             padding=(12, 8, 12, 8),
             arrowsize=15,
             borderwidth=1,
             relief="flat",
             arrowcolor=self.colors["muted"],
-            bordercolor=self.colors["border"],
-            lightcolor=self.colors["border"],
-            darkcolor=self.colors["border"],
+            bordercolor=self.colors["field_border"],
+            lightcolor=self.colors["field_border"],
+            darkcolor=self.colors["field_border"],
             selectbackground="#ffffff",
             selectforeground=self.colors["text"],
         )
@@ -1625,12 +1631,12 @@ class PortableAppsLauncherMaker:
             "Web.TCombobox",
             fieldbackground=[
                 ("disabled", self.colors["surface_alt"]),
-                ("readonly", "#ffffff"),
+                ("readonly", self.colors["field"]),
                 ("focus", "#ffffff"),
             ],
             background=[
                 ("disabled", self.colors["surface_alt"]),
-                ("readonly", "#ffffff"),
+                ("readonly", self.colors["field"]),
                 ("focus", "#ffffff"),
             ],
             foreground=[("disabled", self.colors["muted"])],
@@ -1640,42 +1646,42 @@ class PortableAppsLauncherMaker:
                 ("active", self.colors["text"]),
             ],
             bordercolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
             lightcolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
             darkcolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
         )
         style.configure(
             "TCombobox",
-            fieldbackground="#ffffff",
-            background="#ffffff",
+            fieldbackground=self.colors["field"],
+            background=self.colors["field"],
             foreground=self.colors["text"],
             padding=(10, 6, 10, 6),
             arrowsize=11,
             borderwidth=1,
             relief="flat",
             arrowcolor=self.colors["muted"],
-            bordercolor=self.colors["border"],
-            lightcolor=self.colors["border"],
-            darkcolor=self.colors["border"],
+            bordercolor=self.colors["field_border"],
+            lightcolor=self.colors["field_border"],
+            darkcolor=self.colors["field_border"],
         )
         style.map(
             "TCombobox",
             fieldbackground=[
                 ("disabled", self.colors["surface_alt"]),
-                ("readonly", "#ffffff"),
+                ("readonly", self.colors["field"]),
                 ("focus", "#ffffff"),
             ],
             background=[
                 ("disabled", self.colors["surface_alt"]),
-                ("readonly", "#ffffff"),
+                ("readonly", self.colors["field"]),
                 ("focus", "#ffffff"),
             ],
             foreground=[("disabled", self.colors["muted"])],
@@ -1685,16 +1691,16 @@ class PortableAppsLauncherMaker:
                 ("active", self.colors["text"]),
             ],
             bordercolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
             lightcolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
             darkcolor=[
-                ("focus", self.colors["accent_line"]),
-                ("active", self.colors["accent_line"]),
+                ("focus", self.colors["field_focus"]),
+                ("active", self.colors["field_focus"]),
             ],
         )
         style.configure(
@@ -1791,7 +1797,7 @@ class PortableAppsLauncherMaker:
         self.root.bind_all("<Button-4>", self.scroll_form, add="+")
         self.root.bind_all("<Button-5>", self.scroll_form, add="+")
 
-        notebook_shell = self.create_panel(body, "Project Settings", "Build and preview the PortableApps project from one place.")
+        notebook_shell = self.create_panel(body, "Project Settings", "Build and preview the PortableApps project from one place.", collapsible=False)
         notebook_shell.grid(row=0, column=0, sticky="nsew")
         notebook_shell.content.columnconfigure(0, weight=1)
         notebook_shell.content.rowconfigure(1, weight=1)
@@ -1861,7 +1867,7 @@ class PortableAppsLauncherMaker:
             self.preview_texts[key] = text
             self.create_preview_tab(preview_bar, key, label, tab)
         self.select_preview_tab("folder")
-        footer_shell = self.create_panel(self.root, "Project Paths")
+        footer_shell = self.create_panel(self.root, "Project Paths", collapsible=False)
         footer_shell.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
         footer = footer_shell.content
         footer.columnconfigure(1, weight=1)
@@ -1883,7 +1889,7 @@ class PortableAppsLauncherMaker:
         self.create_button.pack(side="left")
 
     def create_preview_text(self, parent):
-        return tk.Text(
+        text = tk.Text(
             parent,
             height=18,
             wrap="none",
@@ -1897,6 +1903,12 @@ class PortableAppsLauncherMaker:
             padx=10,
             pady=10,
         )
+        text.tag_configure("folder", foreground="#2f5f98", font=("Consolas", 9, "bold"))
+        text.tag_configure("important", foreground=self.colors["accent_hover"], font=("Consolas", 9, "bold"))
+        text.tag_configure("optional", foreground=self.colors["muted"], font=("Consolas", 9, "italic"))
+        text.tag_configure("comment", foreground=self.colors["muted"], font=("Consolas", 9))
+        text.tag_configure("plain", foreground=self.colors["text"], font=("Consolas", 9))
+        return text
 
     def create_main_tab(self, parent, key, text, frame):
         frame.grid(row=0, column=0, sticky="nsew")
@@ -2049,37 +2061,130 @@ class PortableAppsLauncherMaker:
 
         return outer, content
 
-    def create_panel(self, parent, title, note=""):
+    def create_panel(self, parent, title, note="", collapsible=True, expanded=True):
         outer = tk.Frame(parent, bg=self.colors["border"], highlightthickness=0, bd=0)
-        inner = ttk.Frame(outer, style="Surface.TFrame", padding=(16, 14, 16, 16))
+        inner = tk.Frame(outer, bg=self.colors["surface"], highlightthickness=0, bd=0)
         inner.pack(fill="both", expand=True, padx=1, pady=1)
         inner.columnconfigure(0, weight=1)
-        ttk.Label(inner, text=title, style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        content_row = 1
+        inner.rowconfigure(1, weight=1)
+
+        header = tk.Frame(inner, bg=self.colors["card_header"], highlightthickness=0, bd=0, padx=16, pady=12)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+
+        title_block = tk.Frame(header, bg=self.colors["card_header"], highlightthickness=0, bd=0)
+        title_block.grid(row=0, column=0, sticky="w")
+
+        title_label = tk.Label(
+            title_block,
+            text=title,
+            bg=self.colors["card_header"],
+            fg=self.colors["text"],
+            font=("Segoe UI Semibold", 10),
+            anchor="w",
+        )
+        title_label.pack(anchor="w")
+
+        note_label = None
         if note:
-            ttk.Label(inner, text=note, style="PanelNote.TLabel", wraplength=760).grid(row=1, column=0, sticky="ew", pady=(2, 12))
-            content_row = 2
-        inner.rowconfigure(content_row, weight=1)
-        content = ttk.Frame(inner, style="PanelBody.TFrame")
-        content.grid(row=content_row, column=0, sticky="nsew")
+            note_label = tk.Label(
+                title_block,
+                text=note,
+                bg=self.colors["card_header"],
+                fg=self.colors["muted"],
+                font=("Segoe UI", 8),
+                justify="left",
+                anchor="w",
+                wraplength=760,
+            )
+            note_label.pack(anchor="w", pady=(3, 0))
+
+        toggle_label = None
+        if collapsible:
+            toggle_label = tk.Label(
+                header,
+                text="▾" if expanded else "▸",
+                bg=self.colors["card_header"],
+                fg=self.colors["muted"],
+                font=("Segoe UI Semibold", 11),
+                padx=4,
+                cursor="hand2",
+            )
+            toggle_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+        body_shell = tk.Frame(inner, bg=self.colors["surface"], highlightthickness=0, bd=0, padx=16, pady=16)
+        body_shell.grid(row=1, column=0, sticky="nsew")
+        body_shell.columnconfigure(0, weight=1)
+        body_shell.rowconfigure(0, weight=1)
+
+        content = ttk.Frame(body_shell, style="PanelBody.TFrame")
+        content.grid(row=0, column=0, sticky="nsew")
         content.columnconfigure(0, weight=1)
+
         outer.content = content
+        outer.inner = inner
+        outer.header = header
+        outer.title_label = title_label
+        outer.note_label = note_label
+        outer.toggle_label = toggle_label
+        outer.body_shell = body_shell
+        outer.collapsible = collapsible
+        outer.expanded = expanded
+        self.panel_cards.append(outer)
+
+        if collapsible:
+            self.set_panel_expanded(outer, expanded)
+            for widget in (header, title_block, title_label, note_label, toggle_label):
+                if widget is not None:
+                    widget.bind("<Button-1>", lambda _event, panel=outer: self.toggle_panel(panel), add="+")
+                    widget.bind("<Enter>", lambda _event, panel=outer: self.set_panel_hover(panel, True), add="+")
+                    widget.bind("<Leave>", lambda _event, panel=outer: self.set_panel_hover(panel, False), add="+")
+        else:
+            self.set_panel_hover(outer, False)
+
         return outer
+
+    def set_panel_hover(self, panel, hovered):
+        base = self.colors["card_header_active"] if hovered and panel.collapsible else self.colors["card_header"]
+        panel.header.configure(bg=base)
+        panel.title_label.configure(bg=base)
+        if panel.note_label is not None:
+            panel.note_label.configure(bg=base)
+        if panel.toggle_label is not None:
+            panel.toggle_label.configure(bg=base)
+        title_parent = panel.title_label.master
+        title_parent.configure(bg=base)
+
+    def set_panel_expanded(self, panel, expanded):
+        panel.expanded = expanded
+        if expanded:
+            panel.body_shell.grid()
+        else:
+            panel.body_shell.grid_remove()
+        if panel.toggle_label is not None:
+            panel.toggle_label.configure(text="▾" if expanded else "▸")
+
+    def toggle_panel(self, panel):
+        if not panel.collapsible:
+            return
+        self.set_panel_expanded(panel, not panel.expanded)
 
     def create_text_editor(self, parent, height=4, background="#ffffff"):
         return tk.Text(
             parent,
             height=height,
             wrap="none",
-            bg=background,
+            bg=self.colors["field"] if background == "#ffffff" else background,
             fg=self.colors["text"],
             relief="flat",
             bd=0,
             highlightthickness=1,
-            highlightbackground=self.colors["border"],
+            highlightbackground=self.colors["field_border"],
+            highlightcolor=self.colors["field_focus"],
             font=("Consolas", 9),
             padx=8,
             pady=8,
+            insertbackground=self.colors["text"],
         )
 
     def create_appinfo_editor(self, parent):
@@ -3744,37 +3849,8 @@ class PortableAppsLauncherMaker:
     def refresh_preview(self):
         project = self.current_project()
         self.update_launcher_tab_title(project)
-        folder_lines = [
-            f"{project.portable_name}\\",
-            f"  {project.portable_name}.exe  (build with PortableApps.com Launcher)",
-            "  help.html",
-            "  App\\",
-            "    AppInfo\\",
-            "      appinfo.ini",
-            "      installer.ini  (optional)",
-            "      appicon.ico",
-            "      appicon_16.png",
-            "      appicon_32.png",
-            "      appicon_75.png",
-            "      appicon_128.png",
-            "      appicon_256.png",
-            f"      source icon index: {project.icon_index}",
-            "      Launcher\\",
-            f"        {project.portable_name}.ini  (launcher settings)",
-            "        Splash.jpg",
-            f"    {project.package_name}\\",
-            f"      {project.app_exe_name or 'YourApp.exe'}",
-            "  Data\\",
-            "    settings\\",
-            "  Other\\",
-            "    Help\\",
-            "      Images\\",
-            "        appicon_128.png",
-            "    Source\\",
-            "      Readme.txt",
-        ]
         previews = {
-            "folder": "\n".join(folder_lines),
+            "folder": self.build_folder_preview_text(project),
             "appinfo": build_appinfo_ini(project),
             "launcher": build_launcher_ini(project),
             "installer": build_installer_ini(project) or "; installer.ini is optional and will only be created when installer options are set.",
@@ -3785,9 +3861,53 @@ class PortableAppsLauncherMaker:
                 continue
             text.configure(state="normal")
             text.delete("1.0", "end")
-            text.insert("1.0", content)
+            if key == "folder":
+                self.insert_styled_folder_preview(text, content)
+            else:
+                text.insert("1.0", content)
             text.configure(state="disabled")
         self.update_icon_preview()
+
+    def build_folder_preview_text(self, project):
+        installer_enabled = bool(build_installer_ini(project))
+        portable_exe = f"{project.portable_name}.exe"
+        launcher_ini = f"{project.portable_name}.ini"
+        app_exe_name = project.app_exe_name or "YourApp.exe"
+
+        return [
+            ("folder", f"{project.portable_name}\\\n"),
+            ("important", f"|- {portable_exe}\n"),
+            ("comment", "   build with PortableApps.com Launcher\n"),
+            ("important", "|- help.html\n"),
+            ("folder", "|- App\\\n"),
+            ("folder", "|  |- AppInfo\\\n"),
+            ("important", "|  |  |- appinfo.ini\n"),
+            ("important" if installer_enabled else "optional", "|  |  |- installer.ini\n"),
+            ("important", "|  |  |- appicon.ico\n"),
+            ("plain", "|  |  |- appicon_16.png\n"),
+            ("plain", "|  |  |- appicon_32.png\n"),
+            ("plain", "|  |  |- appicon_75.png\n"),
+            ("plain", "|  |  |- appicon_128.png\n"),
+            ("plain", "|  |  |- appicon_256.png\n"),
+            ("comment", f"|  |  `- source icon index: {project.icon_index}\n"),
+            ("folder", "|  |  `- Launcher\\\n"),
+            ("important", f"|  |     |- {launcher_ini}\n"),
+            ("important", "|  |     `- Splash.jpg\n"),
+            ("folder", f"|  `- {project.package_name}\\\n"),
+            ("plain", f"|     `- {app_exe_name}\n"),
+            ("folder", "|- Data\\\n"),
+            ("folder", "|  `- settings\\\n"),
+            ("folder", "`- Other\\\n"),
+            ("folder", "   |- Help\\\n"),
+            ("folder", "   |  `- Images\\\n"),
+            ("plain", "   |     `- appicon_128.png\n"),
+            ("folder", "   `- Source\\\n"),
+            ("plain", "      `- Readme.txt\n"),
+        ]
+
+    def insert_styled_folder_preview(self, text, lines):
+        for tag, line in lines:
+            text.insert("end", line, tag or "plain")
 
     def create_project(self):
         project = self.current_project()
